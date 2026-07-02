@@ -10,12 +10,12 @@ back to /results, or import a CSV export from one).
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from app.core.auth import require_client_access
+from app.core.auth import require_client_access, get_current_user
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models.models import Client, PhishingCampaign, PhishingResult, PhishingCampaignStatus
+from app.models.models import Client, PhishingCampaign, PhishingResult, PhishingCampaignStatus, User, UserRole
 
 router = APIRouter(prefix="/api/clients/{client_id}/phishing-campaigns", tags=["phishing"], dependencies=[Depends(require_client_access)])
 
@@ -50,6 +50,17 @@ class ResultIn(BaseModel):
     reported: bool = False
     submitted_credentials: bool = False
     training_completed: bool = False
+
+
+class ResultOut(BaseModel):
+    id: str
+    employee_identifier: str
+    opened: bool
+    clicked: bool
+    reported: bool
+    submitted_credentials: bool
+    training_completed: bool
+    event_at: datetime
 
 
 def _require_client(client_id: str, db: Session) -> Client:
@@ -114,6 +125,46 @@ def record_result(client_id: str, campaign_id: str, payload: ResultIn, db: Sessi
 
     db.commit()
     return {"message": "recorded"}
+
+
+@router.get("/{campaign_id}/results", response_model=list[ResultOut])
+def list_results(client_id: str, campaign_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """
+    Feature 6.6 — per-employee results. employee_identifier is masked to
+    'Employee #N' for client-role viewers unless the client has opted
+    into named data (Client.phishing_show_employee_names) -- staff
+    (admin/analyst) always see the real identifier since they're the
+    ones running the assessment. This was previously just a code-comment
+    convention on the model with nothing actually enforcing it.
+    """
+    client = _require_client(client_id, db)
+    _require_campaign(client_id, campaign_id, db)
+    results = db.query(PhishingResult).filter_by(campaign_id=campaign_id).order_by(PhishingResult.event_at).all()
+
+    show_names = user.role in (UserRole.admin, UserRole.analyst) or client.phishing_show_employee_names
+    out = []
+    for i, r in enumerate(results, start=1):
+        identifier = r.employee_identifier if show_names else f"Employee #{i}"
+        out.append(ResultOut(
+            id=r.id, employee_identifier=identifier, opened=r.opened, clicked=r.clicked,
+            reported=r.reported, submitted_credentials=r.submitted_credentials,
+            training_completed=r.training_completed, event_at=r.event_at,
+        ))
+    return out
+
+
+@router.get("/{campaign_id}/training-completion")
+def training_completion(client_id: str, campaign_id: str, db: Session = Depends(get_db)):
+    """Feature 6.6 — % of employees who completed the post-campaign training module, previously captured but never aggregated anywhere."""
+    _require_client(client_id, db)
+    _require_campaign(client_id, campaign_id, db)
+    results = db.query(PhishingResult).filter_by(campaign_id=campaign_id).all()
+    total = len(results)
+    completed = sum(1 for r in results if r.training_completed)
+    return {
+        "total_employees": total, "completed": completed,
+        "percent_completed": round(100 * completed / total) if total else 0,
+    }
 
 
 @router.post("/{campaign_id}/complete", response_model=CampaignOut)

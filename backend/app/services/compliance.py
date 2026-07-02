@@ -7,6 +7,7 @@ they're a representative starting checklist a founder can track progress
 against and expand with their auditor. Treat as a starting point, not a
 certified mapping.
 """
+import html
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -84,3 +85,58 @@ def get_compliance_summary(db: Session, client_id: str) -> dict:
     for fw, s in summary.items():
         s["percent_implemented"] = round(100 * s["implemented"] / s["total"]) if s["total"] else 0
     return summary
+
+
+FRAMEWORK_LABELS = {"soc2": "SOC 2", "iso27001": "ISO 27001", "india_dpdp": "India DPDP Act"}
+
+
+def generate_compliance_report_pdf(db: Session, client: Client, output_path: str) -> str:
+    """
+    Feature 6.5 — compliance status report export for auditors/investors.
+    Real per-control status, not just the percentage rollup -- an auditor
+    needs to see which specific controls are missing, not just a number.
+    """
+    # Lazy import: weasyprint needs system libs not present in every
+    # environment (matches the same pattern in ai_reports.py).
+    from weasyprint import HTML
+
+    controls = db.query(ComplianceControl).filter_by(client_id=client.id).order_by(
+        ComplianceControl.framework, ComplianceControl.control_id
+    ).all()
+    summary = get_compliance_summary(db, client.id)
+
+    rows_by_framework = {}
+    for c in controls:
+        rows_by_framework.setdefault(c.framework.value, []).append(c)
+
+    sections = []
+    for fw, rows in rows_by_framework.items():
+        label = FRAMEWORK_LABELS.get(fw, fw)
+        pct = summary.get(fw, {}).get("percent_implemented", 0)
+        table_rows = "".join(
+            f"<tr><td>{html.escape(c.control_id)}</td><td>{html.escape(c.control_name)}</td>"
+            f"<td>{html.escape(c.status.value)}</td><td>{html.escape(c.evidence_notes or '')}</td></tr>"
+            for c in rows
+        )
+        sections.append(f"""
+        <h2>{html.escape(label)} — {pct}% implemented</h2>
+        <table>
+            <tr><th>Control</th><th>Description</th><th>Status</th><th>Evidence notes</th></tr>
+            {table_rows}
+        </table>
+        """)
+
+    html_content = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+        body {{ font-family: Arial, sans-serif; font-size: 10pt; color: #1a1a2e; }}
+        h1 {{ font-size: 20pt; }} h2 {{ font-size: 13pt; margin-top: 20pt; border-bottom: 1px solid #ccc; }}
+        table {{ width: 100%; border-collapse: collapse; margin-top: 6pt; }}
+        th {{ background: #16213e; color: white; text-align: left; padding: 5pt; font-size: 9pt; }}
+        td {{ padding: 5pt; border-bottom: 1px solid #ddd; font-size: 9pt; }}
+    </style></head><body>
+        <h1>{html.escape(client.name)} — Compliance Status Report</h1>
+        <p>Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}. Confidential.</p>
+        {''.join(sections) if sections else '<p>No compliance controls configured yet.</p>'}
+    </body></html>"""
+
+    HTML(string=html_content).write_pdf(output_path)
+    return output_path

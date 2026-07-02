@@ -735,6 +735,9 @@ def snapshot_client_metrics_all_clients():
     open-finding counts by severity and the current risk score. Backing
     data for every trend chart in the spec (dashboard, findings, reports) —
     written once here instead of each surface recomputing history itself.
+    Also recomputes each Asset.risk_score (Feature 6.2 per-asset risk
+    rating) from findings linked to that specific asset — this column
+    existed on the model but was never actually written anywhere.
     """
     db = SessionLocal()
     try:
@@ -747,15 +750,22 @@ def snapshot_client_metrics_all_clients():
                 Finding.status.notin_([FindingStatus.resolved, FindingStatus.verified]),
             ).all()
             counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+            per_asset_counts = {}
             for f in open_findings:
                 if f.severity.value in counts:
                     counts[f.severity.value] += 1
+                if f.asset_id and f.severity.value in counts:
+                    per_asset_counts.setdefault(f.asset_id, {"critical": 0, "high": 0, "medium": 0, "low": 0})
+                    per_asset_counts[f.asset_id][f.severity.value] += 1
             db.add(MetricSnapshot(
                 client_id=client.id, snapshot_date=now,
                 critical_count=counts["critical"], high_count=counts["high"],
                 medium_count=counts["medium"], low_count=counts["low"],
                 risk_score=compute_risk_score(counts),
             ))
+
+            for asset in db.query(Asset).filter_by(client_id=client.id):
+                asset.risk_score = compute_risk_score(per_asset_counts.get(asset.id, {}))
             written += 1
         db.commit()
         return {"snapshots_written": written}

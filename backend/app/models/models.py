@@ -82,6 +82,7 @@ class Client(Base):
     dns_baseline = Column(JSON, nullable=True)  # DNS drift monitoring baseline snapshot
     logo_url = Column(String(500), nullable=True)  # Feature 5.1 — client branding on generated reports
     brand_color = Column(String(20), nullable=True)  # hex color, e.g. "#1a73e8"
+    phishing_show_employee_names = Column(Boolean, default=False)  # Feature 6.6 — opt-in to named (not anonymized) phishing results for client-role viewers
     onboarded_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)
 

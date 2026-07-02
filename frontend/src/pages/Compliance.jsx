@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { listComplianceControls, getComplianceSummary, updateComplianceControl } from '../api/client.js'
+import {
+  listComplianceControls, getComplianceSummary, updateComplianceControl,
+  uploadComplianceEvidence, downloadAuthenticatedFile,
+} from '../api/client.js'
 
 const FRAMEWORKS = [
   { key: 'soc2', label: 'SOC 2' },
@@ -36,10 +39,22 @@ export default function Compliance() {
       qc.invalidateQueries({ queryKey: ['compliance-summary', clientId] })
     },
   })
+  const uploadEvidence = useMutation({
+    mutationFn: ({ controlId, file }) => uploadComplianceEvidence(clientId, controlId, file),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', clientId] }),
+  })
 
   return (
     <div>
-      <h2 className="text-2xl font-semibold mb-1">Compliance Center</h2>
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-2xl font-semibold">Compliance Center</h2>
+        <button
+          onClick={() => downloadAuthenticatedFile(`/clients/${clientId}/compliance/export/pdf`, 'compliance-report.pdf')}
+          className="text-xs px-3 py-1.5 rounded border border-border hover:border-signal/50 font-mono"
+        >
+          Export report for auditors
+        </button>
+      </div>
       <p className="text-muted text-sm mb-6">Track control implementation across frameworks. Starter checklist — expand with your auditor.</p>
 
       <div className="grid grid-cols-3 gap-4 mb-6">
@@ -78,7 +93,7 @@ export default function Compliance() {
                 <span className="font-mono text-xs text-muted mr-2">{c.control_id}</span>
                 <span className="text-sm">{c.control_name}</span>
               </div>
-              <div className="flex gap-1.5 shrink-0">
+              <div className="flex gap-1.5 shrink-0 items-center">
                 {['missing', 'in_progress', 'implemented'].map((s) => (
                   <button
                     key={s}
@@ -90,6 +105,22 @@ export default function Compliance() {
                     {s.replace('_', ' ')}
                   </button>
                 ))}
+                {c.has_evidence ? (
+                  <button
+                    onClick={() => downloadAuthenticatedFile(`/clients/${clientId}/compliance/${c.id}/evidence`, `evidence-${c.control_id}`)}
+                    className="text-[11px] px-2 py-1 rounded border border-signal/40 text-signal font-mono"
+                  >
+                    evidence ↓
+                  </button>
+                ) : (
+                  <label className="text-[11px] px-2 py-1 rounded border border-border text-muted hover:text-ink font-mono cursor-pointer">
+                    + evidence
+                    <input
+                      type="file" className="hidden"
+                      onChange={(e) => e.target.files[0] && uploadEvidence.mutate({ controlId: c.id, file: e.target.files[0] })}
+                    />
+                  </label>
+                )}
               </div>
             </div>
           ))}
