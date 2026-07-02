@@ -13,7 +13,7 @@ from app.models.models import (
     Client, Asset, AssetType, ScanRun, ScanStatus, ScanType, CloudAccount,
     Finding, FindingStatus, Severity, MetricSnapshot,
 )
-from app.services import recon, vuln_scan, threat_intel, cspm, ai_reports, notifications, pentest_scheduling, dns_ssl_monitor
+from app.services import recon, vuln_scan, threat_intel, cspm, ai_reports, notifications, pentest_scheduling, dns_ssl_monitor, auth_protocol_checks
 from app.services.risk_score import compute_risk_score
 from app.workers.celery_app import celery_app
 
@@ -214,7 +214,15 @@ def run_vuln_scan_for_client(self, client_id: str, severity_filter: str | None =
             return {"client_id": client_id, "message": "no live hosts to scan"}
 
         raw_findings = vuln_scan.run_nuclei_scan(live_hosts, severity_filter=severity_filter)
+        raw_findings += vuln_scan.run_nuclei_default_logins_scan(live_hosts)
         new_count, resolved_count = vuln_scan.sync_findings_to_db(db, client, raw_findings)
+
+        # Feature 2.3 — JWT weakness + OAuth2 misconfiguration checks
+        jwt_hits = auth_protocol_checks.discover_and_check_jwts(live_hosts)
+        oauth_hits = auth_protocol_checks.check_oauth_misconfig(live_hosts)
+        auth_protocol_findings = auth_protocol_checks.sync_auth_protocol_findings_to_db(db, client, jwt_hits, oauth_hits)
+        new_count += auth_protocol_findings
+
         _draft_alerts_for_recent_critical_findings(db, client_id, scan.started_at)
 
         scan.status = ScanStatus.completed
@@ -641,6 +649,25 @@ def check_dns_and_ssl_for_client(client_id: str):
                     dedup_hash=dedup, created_at=now, sla_deadline=now + timedelta(hours=client.sla_hours_high),
                 ))
                 new_count += 1
+
+        # Feature 2.3 — SPF/DKIM/DMARC email security validation
+        email_sec_severity = {
+            "spf_missing": Severity.medium, "spf_multiple_records": Severity.medium, "spf_weak_policy": Severity.low,
+            "dmarc_missing": Severity.medium, "dmarc_policy_none": Severity.low, "dkim_not_found_default_selector": Severity.info,
+        }
+        for issue in dns_ssl_monitor.check_email_security(client.root_domain):
+            dedup = hashlib.sha256(f"{client_id}:email_sec:{issue['issue']}".encode()).hexdigest()
+            if db.query(Finding).filter_by(dedup_hash=dedup).first():
+                continue
+            severity = email_sec_severity.get(issue["issue"], Severity.low)
+            db.add(Finding(
+                client_id=client_id, title=f"[Email] {issue['issue'].replace('_', ' ')} — {client.root_domain}",
+                description=issue["detail"], severity=severity, cvss_score=4.0 if severity == Severity.medium else 2.0,
+                status=FindingStatus.new, evidence=issue,
+                remediation_steps="Add or correct the SPF/DKIM/DMARC DNS TXT records for this domain per RFC 7208 (SPF) and RFC 7489 (DMARC).",
+                dedup_hash=dedup, created_at=now,
+            ))
+            new_count += 1
 
         client.dns_baseline = dns_result["current"]
         db.commit()

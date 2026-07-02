@@ -108,6 +108,7 @@ class Asset(Base):
     is_alive = Column(Boolean, default=True)
     tech_stack = Column(JSON, default=dict)  # {"web_server": "nginx", "cms": "wordpress 5.2", ...}
     risk_score = Column(Float, default=0.0)  # 0-100, derived from open findings
+    is_internal = Column(Boolean, default=False)  # Feature 2.1 business-context scoring: internal/dev vs internet-facing prod
 
     client = relationship("Client", back_populates="assets")
     ports = relationship("Port", back_populates="asset", cascade="all, delete-orphan")
@@ -191,6 +192,7 @@ class Finding(Base):
     description = Column(Text, nullable=True)
     severity = Column(Enum(Severity), nullable=False)
     cvss_score = Column(Float, nullable=True)
+    cvss_vector = Column(String(100), nullable=True)  # e.g. "AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
     cve_id = Column(String(50), nullable=True, index=True)
     status = Column(Enum(FindingStatus), default=FindingStatus.new)
     evidence = Column(JSON, default=dict)
@@ -199,9 +201,13 @@ class Finding(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)
     sla_deadline = Column(DateTime, nullable=True)
+    assigned_to = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    escalated_at = Column(DateTime, nullable=True)  # Module 7 SLA escalation — set on first breach notification
+    escalation_count = Column(Integer, default=0)
 
     client = relationship("Client", back_populates="findings")
     asset = relationship("Asset", back_populates="findings")
+    assignee = relationship("User")
 
 
 class CloudProvider(str, enum.Enum):
