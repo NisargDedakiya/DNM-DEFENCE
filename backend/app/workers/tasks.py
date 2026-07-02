@@ -58,8 +58,10 @@ def run_subdomain_enum_for_client(self, client_id: str):
 
         subfinder_hosts = recon.run_subfinder(client.root_domain)
         amass_hosts = recon.run_amass(client.root_domain)
-        hosts = sorted(set(subfinder_hosts) | set(amass_hosts))
+        bruteforce_hosts = recon.run_subdomain_bruteforce(client.root_domain)
+        hosts = sorted(set(subfinder_hosts) | set(amass_hosts) | set(bruteforce_hosts))
         new_count, new_hosts = recon.sync_subdomains_to_db(db, client_id, hosts)
+        new_subdomain_findings = recon.sync_new_subdomain_findings_to_db(db, client, new_hosts)
 
         # Probe liveness + tech stack on everything we found (Feature 1.3)
         tech_data = recon.run_httpx_probe(hosts)
@@ -68,16 +70,27 @@ def run_subdomain_enum_for_client(self, client_id: str):
                 asset.tech_stack = tech_data[asset.value]
         db.commit()
 
+        # Feature 1.3 — security header analysis + CVE matching on live hosts
+        live_hosts = [h for h, info in tech_data.items() if info.get("status_code")]
+        header_results = recon.check_security_headers(live_hosts)
+        header_findings = recon.sync_header_findings_to_db(db, client, header_results)
+
+        tech_by_host = {h: info.get("tech", []) for h, info in tech_data.items()}
+        cve_hits = recon.check_cve_matches(tech_by_host)
+        cve_findings = recon.sync_cve_findings_to_db(db, client, cve_hits)
+
         scan.status = ScanStatus.completed
         scan.finished_at = datetime.utcnow()
         scan.new_assets_found = new_count
+        scan.new_findings_found = new_subdomain_findings + header_findings + cve_findings
         db.commit()
+        _draft_alerts_for_recent_critical_findings(db, client_id, scan.started_at)
 
         if new_hosts:
-            # Hook: fires Feature 1.1 "new subdomain" alert via the alert engine (Module 5.2)
             logger.info(f"[{client.name}] {new_count} new subdomains: {new_hosts}")
 
-        return {"client_id": client_id, "total_hosts": len(hosts), "new_hosts": new_count}
+        return {"client_id": client_id, "total_hosts": len(hosts), "new_hosts": new_count,
+                "header_findings": header_findings, "cve_findings": cve_findings}
 
     except Exception as exc:
         scan.status = ScanStatus.failed
@@ -116,6 +129,10 @@ def run_port_scan_for_client(self, client_id: str, full_range: bool = False):
     db.commit()
 
     try:
+        client = db.query(Client).get(client_id)
+        if not client:
+            raise ValueError(f"Client {client_id} not found")
+
         assets = db.query(Asset).filter_by(client_id=client_id, is_alive=True).all()
         hosts = [a.value for a in assets]
         port_results = recon.run_naabu_portscan(hosts, full_range=full_range)
@@ -127,7 +144,7 @@ def run_port_scan_for_client(self, client_id: str, full_range: bool = False):
         nmap_results = recon.run_nmap_service_scan(hosts_with_ports) if hosts_with_ports else {}
 
         new_ports_total = 0
-        dangerous_found = []
+        all_new_port_details = []
         for asset in assets:
             ports = port_results.get(asset.value, [])
             # Merge nmap's service/version data into naabu's port list where they overlap
@@ -138,21 +155,24 @@ def run_port_scan_for_client(self, client_id: str, full_range: bool = False):
                     p["service_guess"] = nmap_match.get("product") or p.get("service_guess")
                     p["service_version"] = nmap_match.get("version")
 
-            new_ports_total += recon.sync_ports_to_db(db, asset, ports)
-            for p in ports:
-                if p["is_dangerous"]:
-                    dangerous_found.append((asset.value, p["port"], p["service_guess"]))
+            asset_new_count, asset_new_details = recon.sync_ports_to_db(db, asset, ports)
+            new_ports_total += asset_new_count
+            all_new_port_details.extend(asset_new_details)
+
+        port_findings = recon.sync_port_findings_to_db(db, client, all_new_port_details)
+        _draft_alerts_for_recent_critical_findings(db, client_id, scan.started_at)
 
         scan.status = ScanStatus.completed
         scan.finished_at = datetime.utcnow()
-        scan.new_findings_found = new_ports_total
+        scan.new_findings_found = port_findings
         db.commit()
 
+        dangerous_found = [d for d in all_new_port_details if d["dangerous"]]
         if dangerous_found:
-            # Hook: Feature 1.2 "dangerous service alert" — critical severity, fires immediately
             logger.warning(f"Dangerous exposed services for client {client_id}: {dangerous_found}")
 
-        return {"client_id": client_id, "hosts_scanned": len(hosts), "new_ports": new_ports_total}
+        return {"client_id": client_id, "hosts_scanned": len(hosts), "new_ports": new_ports_total,
+                "port_findings": port_findings}
 
     except Exception as exc:
         scan.status = ScanStatus.failed
@@ -349,10 +369,9 @@ def run_cloud_audit_for_client(self, client_id: str):
                     ])
             account.config_baseline = cspm.snapshot_baseline(raw_findings)
 
-            # Feature 1.4 — cloud asset discovery into the main Asset inventory (AWS only for now)
-            if account.provider.value == "aws":
-                discovered = cspm.discover_aws_assets(account)
-                cspm.sync_cloud_assets_to_db(db, client, account, discovered)
+            # Feature 1.4 — cloud asset discovery into the main Asset inventory (all providers)
+            discovered = cspm.discover_cloud_assets(account)
+            cspm.sync_cloud_assets_to_db(db, client, account, discovered)
 
         db.commit()
         _draft_alerts_for_recent_critical_findings(db, client_id, scan.started_at)
@@ -604,8 +623,28 @@ def check_dns_and_ssl_for_client(client_id: str):
                 ))
                 new_count += 1
 
+        # Feature 2.3 — deep TLS configuration scan (weak protocols/ciphers),
+        # distinct from the cert-expiry check above. Capped same as ssl_flags.
+        for hostname in live_hosts[:50]:
+            sslyze_result = recon.run_sslyze_scan(hostname)
+            if not sslyze_result or not sslyze_result.get("issues"):
+                continue
+            for issue in sslyze_result["issues"]:
+                dedup = hashlib.sha256(f"{client_id}:sslyze:{hostname}:{issue}".encode()).hexdigest()
+                if db.query(Finding).filter_by(dedup_hash=dedup).first():
+                    continue
+                db.add(Finding(
+                    client_id=client_id, title=f"[TLS] Weak configuration — {hostname}",
+                    description=issue, severity=Severity.medium, cvss_score=5.0,
+                    status=FindingStatus.new, evidence={"hostname": hostname, "issue": issue},
+                    remediation_steps="Disable deprecated TLS/SSL protocol versions and weak cipher suites in the server's TLS configuration.",
+                    dedup_hash=dedup, created_at=now, sla_deadline=now + timedelta(hours=client.sla_hours_high),
+                ))
+                new_count += 1
+
         client.dns_baseline = dns_result["current"]
         db.commit()
+        _draft_alerts_for_recent_critical_findings(db, client_id, now)
 
         return {"client_id": client_id, "dns_changed": dns_result["changed"], "ssl_issues": len(ssl_flags), "new_findings": new_count}
     finally:

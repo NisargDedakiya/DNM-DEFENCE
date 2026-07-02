@@ -472,6 +472,92 @@ def discover_aws_assets(cloud_account: CloudAccount) -> list[dict]:
     return assets
 
 
+def discover_gcp_assets(cloud_account: CloudAccount) -> list[dict]:
+    """Feature 1.4 — enumerates GCS buckets and Compute Engine instances so GCP resources show up in the Asset inventory."""
+    assets = []
+    try:
+        from google.cloud import storage as gcs
+        from googleapiclient import discovery
+    except ImportError:
+        logger.warning("google-cloud SDK not installed — skipping GCP asset discovery")
+        return assets
+
+    creds = _gcp_credentials_from_account(cloud_account)
+    project_id = cloud_account.account_identifier
+
+    try:
+        storage_client = gcs.Client(project=project_id, credentials=creds)
+        for bucket in storage_client.list_buckets():
+            assets.append({"value": f"gcs://{bucket.name}", "source": "gcp_storage", "tech_stack": {}})
+    except Exception as e:
+        logger.error(f"GCP storage asset discovery failed: {e}")
+
+    try:
+        compute = discovery.build("compute", "v1", credentials=creds, cache_discovery=False)
+        agg = compute.instances().aggregatedList(project=project_id).execute()
+        for zone, scoped in agg.get("items", {}).items():
+            for inst in scoped.get("instances", []):
+                assets.append({"value": inst["name"], "source": "gcp_compute",
+                                "tech_stack": {"zone": zone, "status": inst.get("status")}})
+    except Exception as e:
+        logger.error(f"GCP compute asset discovery failed: {e}")
+
+    return assets
+
+
+def discover_azure_assets(cloud_account: CloudAccount) -> list[dict]:
+    """Feature 1.4 — enumerates Storage Accounts and VMs so Azure resources show up in the Asset inventory."""
+    assets = []
+    try:
+        from azure.identity import ClientSecretCredential
+        from azure.mgmt.storage import StorageManagementClient
+    except ImportError:
+        logger.warning("azure SDK not installed — skipping Azure asset discovery")
+        return assets
+
+    creds_dict = decrypt_credentials(cloud_account.encrypted_credentials)
+    credential = ClientSecretCredential(
+        tenant_id=creds_dict["tenant_id"], client_id=creds_dict["client_id"], client_secret=creds_dict["client_secret"],
+    )
+    subscription_id = cloud_account.account_identifier
+
+    try:
+        storage_client = StorageManagementClient(credential, subscription_id)
+        for account in storage_client.storage_accounts.list():
+            assets.append({"value": f"storage:{account.name}", "source": "azure_storage",
+                            "tech_stack": {"location": account.location}})
+    except Exception as e:
+        logger.error(f"Azure storage asset discovery failed: {e}")
+
+    try:
+        from azure.mgmt.compute import ComputeManagementClient
+        compute_client = ComputeManagementClient(credential, subscription_id)
+        for vm in compute_client.virtual_machines.list_all():
+            assets.append({"value": vm.name, "source": "azure_vm",
+                            "tech_stack": {"location": vm.location, "vm_size": vm.hardware_profile.vm_size if vm.hardware_profile else None}})
+    except ImportError:
+        logger.warning("azure-mgmt-compute not installed — skipping Azure VM asset discovery")
+    except Exception as e:
+        logger.error(f"Azure VM asset discovery failed: {e}")
+
+    return assets
+
+
+CLOUD_ASSET_DISCOVERY_DISPATCH = {
+    CloudProvider.aws: discover_aws_assets,
+    CloudProvider.gcp: discover_gcp_assets,
+    CloudProvider.azure: discover_azure_assets,
+}
+
+
+def discover_cloud_assets(cloud_account: CloudAccount) -> list[dict]:
+    """Single entry point — dispatches asset discovery to the right provider, matching run_cloud_audit's pattern."""
+    fn = CLOUD_ASSET_DISCOVERY_DISPATCH.get(cloud_account.provider)
+    if not fn:
+        return []
+    return fn(cloud_account)
+
+
 def sync_cloud_assets_to_db(db: Session, client: Client, cloud_account: CloudAccount, discovered: list[dict]) -> int:
     """Upserts discovered cloud resources as Asset rows (asset_type=cloud_resource)."""
     now = datetime.utcnow()

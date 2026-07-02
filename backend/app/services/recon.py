@@ -14,19 +14,45 @@ All scans here are READ-ONLY / passive-first by design. Anything active
 has explicitly authorized in their scope agreement — enforce that check
 at the API layer before calling into this module, not here.
 """
+import hashlib
 import json
+import socket
 import subprocess
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Iterable
 
+import httpx
 from sqlalchemy.orm import Session
 
-from app.models.models import Asset, AssetType, Port
+from app.models.models import Asset, AssetType, Port, Finding, Severity, FindingStatus
 
 logger = logging.getLogger(__name__)
 
 DANGEROUS_PORTS = {22: "SSH", 23: "Telnet", 3389: "RDP", 3306: "MySQL", 5432: "PostgreSQL", 6379: "Redis", 27017: "MongoDB"}
+
+# Feature 1.1 -- small built-in wordlist for active brute-force subdomain
+# enumeration. Deliberately short: this is meant to catch common
+# dev/staging/internal subdomains a passive source might miss, not to be
+# an exhaustive brute-force -- keep the request volume against a client's
+# domain reasonable.
+BRUTEFORCE_WORDLIST = [
+    "www", "mail", "ftp", "webmail", "smtp", "pop", "ns1", "ns2", "cpanel",
+    "dev", "staging", "test", "uat", "api", "admin", "portal", "app",
+    "vpn", "remote", "internal", "intranet", "git", "gitlab", "jenkins",
+    "jira", "confluence", "grafana", "kibana", "elastic", "db", "mysql",
+    "postgres", "redis", "mongo", "backup", "old", "beta", "demo",
+    "sandbox", "qa", "preprod", "prod", "monitor", "status", "docs",
+]
+
+# Feature 1.3 -- security headers every production web app should set.
+# Missing entries become low/medium findings, not a full header audit.
+SECURITY_HEADERS = {
+    "content-security-policy": ("medium", "Missing Content-Security-Policy header — increases blast radius of any XSS."),
+    "strict-transport-security": ("medium", "Missing Strict-Transport-Security (HSTS) header — allows protocol downgrade attacks."),
+    "x-frame-options": ("low", "Missing X-Frame-Options header — page can be embedded in a clickjacking iframe."),
+    "x-content-type-options": ("low", "Missing X-Content-Type-Options header — browser may MIME-sniff responses."),
+}
 
 
 def run_amass(root_domain: str, timeout: int = 600) -> list[str]:
@@ -263,6 +289,186 @@ def run_naabu_portscan(hosts: Iterable[str], full_range: bool = False, timeout: 
     return results
 
 
+def run_subdomain_bruteforce(root_domain: str, timeout: int = 5) -> list[str]:
+    """
+    Feature 1.1 -- active brute-force subdomain enumeration, complementing
+    the passive sources (subfinder/amass). Only ever run for onboarded
+    clients under a signed scope agreement, same authorization posture as
+    the rest of active scanning in this module (naabu full-range, etc.) --
+    enforced by callers only running this from the client onboarding /
+    scheduled-scan pipeline, never on an arbitrary domain.
+    """
+    found = []
+    old_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(timeout)
+    try:
+        for word in BRUTEFORCE_WORDLIST:
+            host = f"{word}.{root_domain}"
+            try:
+                socket.gethostbyname(host)
+                found.append(host)
+            except (socket.gaierror, socket.timeout):
+                continue
+    finally:
+        socket.setdefaulttimeout(old_timeout)
+    return found
+
+
+def check_security_headers(hosts: list[str], timeout: int = 10) -> list[dict]:
+    """
+    Feature 1.3 -- HTTP security header analysis. Checks each live host for
+    CSP/HSTS/X-Frame-Options/X-Content-Type-Options and reports what's
+    missing. Best-effort: a host that's unreachable is skipped, not flagged
+    (that's the SSL/liveness checks' job, not this one's).
+    """
+    results = []
+    for host in hosts:
+        url = host if host.startswith("http") else f"https://{host}"
+        try:
+            resp = httpx.get(url, timeout=timeout, follow_redirects=True, verify=False)
+        except httpx.HTTPError:
+            continue
+        headers_lower = {k.lower() for k in resp.headers.keys()}
+        missing = [h for h in SECURITY_HEADERS if h not in headers_lower]
+        if missing:
+            results.append({"host": host, "missing": missing})
+    return results
+
+
+def check_cve_matches(tech_by_host: dict[str, list[str]], timeout: int = 10) -> list[dict]:
+    """
+    Feature 1.3 -- CVE matching for fingerprinted technology versions, via
+    the free CIRCL CVE Search API (cve.circl.lu, no key required). Best-
+    effort: CIRCL indexes by vendor/product slug, approximated here from
+    the technology name (works for well-known single-word products like
+    wordpress/nginx/apache; anything that doesn't resolve to a real
+    vendor/product is silently skipped rather than guessed at).
+    """
+    hits = []
+    checked = set()
+    for host, techs in tech_by_host.items():
+        for entry in techs:
+            name, _, version = entry.partition(":")
+            slug = name.strip().lower().replace(" ", "")
+            if not slug or not version or slug in checked:
+                continue
+            checked.add(slug)
+            try:
+                resp = httpx.get(f"https://cve.circl.lu/api/search/{slug}/{slug}", timeout=timeout)
+                if resp.status_code != 200:
+                    continue
+                data = resp.json()
+            except (httpx.HTTPError, ValueError) as e:
+                logger.info(f"CVE lookup skipped for {slug}: {e}")
+                continue
+            for cve in (data.get("data") or [])[:20]:
+                summary = cve.get("summary", "")
+                if version in summary:
+                    hits.append({
+                        "host": host, "technology": name.strip(), "version": version,
+                        "cve_id": cve.get("id"), "summary": summary,
+                        "cvss": cve.get("cvss") or 5.0,
+                    })
+    return hits
+
+
+def sync_new_subdomain_findings_to_db(db: Session, client, new_hosts: list[str]) -> int:
+    """Feature 1.1 -- turns the 'new subdomain appeared' signal into a real Finding, not just a log line."""
+    now = datetime.utcnow()
+    count = 0
+    for host in new_hosts:
+        dedup = hashlib.sha256(f"{client.id}:new_subdomain:{host}".encode()).hexdigest()
+        if db.query(Finding).filter_by(dedup_hash=dedup).first():
+            continue
+        db.add(Finding(
+            client_id=client.id, title=f"New subdomain discovered: {host}",
+            description="This subdomain was not present in the previous scan. Verify it was authorized before assuming it's legitimate.",
+            severity=Severity.info, cvss_score=0.0, status=FindingStatus.new,
+            evidence={"host": host}, remediation_steps="Confirm this subdomain is expected; decommission or add to inventory tracking if not.",
+            dedup_hash=dedup, created_at=now,
+        ))
+        count += 1
+    db.commit()
+    return count
+
+
+def sync_port_findings_to_db(db: Session, client, new_port_details: list[dict]) -> int:
+    """
+    Feature 1.2 -- new-open-port and dangerous-service alerts as real
+    Findings. new_port_details is a list of {"host", "port", "dangerous",
+    "service"} for ports that are genuinely new this scan (not just
+    re-seen), so re-scans don't spam duplicate findings.
+    """
+    now = datetime.utcnow()
+    count = 0
+    for detail in new_port_details:
+        is_dangerous = detail["dangerous"]
+        dedup = hashlib.sha256(f"{client.id}:port:{detail['host']}:{detail['port']}".encode()).hexdigest()
+        if db.query(Finding).filter_by(dedup_hash=dedup).first():
+            continue
+        severity = Severity.high if is_dangerous else Severity.low
+        title = (f"Dangerous service exposed: {detail.get('service') or 'unknown'} on port {detail['port']} — {detail['host']}"
+                 if is_dangerous else f"New open port {detail['port']} on {detail['host']}")
+        db.add(Finding(
+            client_id=client.id, title=title,
+            description=f"Port {detail['port']} is now open and reachable on {detail['host']}."
+                        + (" This service type is commonly targeted and should not be internet-facing." if is_dangerous else ""),
+            severity=severity, cvss_score=7.0 if is_dangerous else 2.0, status=FindingStatus.new,
+            evidence=detail,
+            remediation_steps="Restrict access via firewall/security group, or close the port if it's not intentionally exposed.",
+            dedup_hash=dedup, created_at=now,
+            sla_deadline=now + timedelta(hours=client.sla_hours_high) if is_dangerous else None,
+        ))
+        count += 1
+    db.commit()
+    return count
+
+
+def sync_header_findings_to_db(db: Session, client, header_results: list[dict]) -> int:
+    """Feature 1.3 -- missing HTTP security header findings."""
+    now = datetime.utcnow()
+    count = 0
+    for result in header_results:
+        for header in result["missing"]:
+            severity_label, description = SECURITY_HEADERS[header]
+            dedup = hashlib.sha256(f"{client.id}:header:{result['host']}:{header}".encode()).hexdigest()
+            if db.query(Finding).filter_by(dedup_hash=dedup).first():
+                continue
+            severity = Severity(severity_label)
+            db.add(Finding(
+                client_id=client.id, title=f"Missing {header} header — {result['host']}",
+                description=description, severity=severity,
+                cvss_score=4.0 if severity == Severity.medium else 2.0, status=FindingStatus.new,
+                evidence={"host": result["host"], "header": header},
+                remediation_steps=f"Set the `{header}` response header on {result['host']}.",
+                dedup_hash=dedup, created_at=now,
+            ))
+            count += 1
+    db.commit()
+    return count
+
+
+def sync_cve_findings_to_db(db: Session, client, cve_hits: list[dict]) -> int:
+    """Feature 1.3 -- CVE findings for outdated fingerprinted software."""
+    now = datetime.utcnow()
+    count = 0
+    for hit in cve_hits:
+        dedup = hashlib.sha256(f"{client.id}:cve:{hit['host']}:{hit['cve_id']}".encode()).hexdigest()
+        if db.query(Finding).filter_by(dedup_hash=dedup).first():
+            continue
+        db.add(Finding(
+            client_id=client.id, title=f"{hit['cve_id']} — {hit['technology']} {hit['version']} on {hit['host']}",
+            description=hit["summary"][:1000], severity=Severity.high, cvss_score=hit["cvss"],
+            cve_id=hit["cve_id"], status=FindingStatus.new, evidence=hit,
+            remediation_steps=f"Upgrade {hit['technology']} on {hit['host']} past version {hit['version']}.",
+            dedup_hash=dedup, created_at=now,
+            sla_deadline=now + timedelta(hours=client.sla_hours_high),
+        ))
+        count += 1
+    db.commit()
+    return count
+
+
 def sync_subdomains_to_db(db: Session, client_id: str, discovered_hosts: list[str]) -> tuple[int, list[str]]:
     """
     Reconciles freshly discovered hosts against the existing Asset table.
@@ -293,10 +499,16 @@ def sync_subdomains_to_db(db: Session, client_id: str, discovered_hosts: list[st
     return len(new_hosts), new_hosts
 
 
-def sync_ports_to_db(db: Session, asset: Asset, ports: list[dict]) -> int:
-    """Upserts discovered ports for an asset. Returns count of newly-opened ports."""
+def sync_ports_to_db(db: Session, asset: Asset, ports: list[dict]) -> tuple[int, list[dict]]:
+    """
+    Upserts discovered ports for an asset. Returns (count_of_newly_opened,
+    new_port_details) -- the latter feeds sync_port_findings_to_db so
+    new-port/dangerous-service alerts fire only for genuinely new ports,
+    not ones re-seen on every scan.
+    """
     existing_ports = {p.port_number for p in asset.ports}
     new_count = 0
+    new_details = []
     now = datetime.utcnow()
     for p in ports:
         if p["port"] not in existing_ports:
@@ -304,6 +516,7 @@ def sync_ports_to_db(db: Session, asset: Asset, ports: list[dict]) -> int:
             db.add(Port(asset_id=asset.id, port_number=p["port"], service_name=p.get("service_guess"),
                         service_version=p.get("service_version"),
                         is_dangerous=p["is_dangerous"], first_seen=now, last_seen=now))
+            new_details.append({"host": asset.value, "port": p["port"], "dangerous": p["is_dangerous"], "service": p.get("service_guess")})
         else:
             existing = next(x for x in asset.ports if x.port_number == p["port"])
             existing.last_seen = now
@@ -311,4 +524,4 @@ def sync_ports_to_db(db: Session, asset: Asset, ports: list[dict]) -> int:
                 existing.service_version = p["service_version"]
                 existing.service_name = p.get("service_guess") or existing.service_name
     db.commit()
-    return new_count
+    return new_count, new_details
