@@ -1,70 +1,236 @@
-# Track 1 Automation Platform — v0.1 (Foundation)
+# Track 1 Automation Platform
 
-This is the starting skeleton: **backend structure covering all 7 modules
-from the spec, with Module 1 (Asset Discovery) fully wired end-to-end.**
-Everything else is modeled in the database but not yet implemented — see
-Roadmap below.
+An automated Managed Security Service Provider (MSSP) platform: continuous
+asset discovery, vulnerability scanning, dark web/threat intel monitoring,
+cloud security posture management (AWS/GCP/Azure), AI-generated reports, and
+a client portal — built to let one person deliver security services to
+10–15 clients without drowning in manual work. Every module from the
+original spec has a real, working implementation; see [Roadmap](#roadmap)
+for the honest per-module status.
 
-## What actually works right now
+**Stack:** FastAPI + PostgreSQL + Celery/Redis on the backend, React + Vite
+on the frontend, real recon tools (subfinder, httpx, naabu, nuclei, amass,
+nmap) run as subprocesses, Claude for AI-generated report content.
 
-- FastAPI backend with clients + assets + scan-trigger endpoints
-- SQLAlchemy models for every core entity: Client, Asset, Port, ScanRun,
-  Finding, CloudAccount
-- Celery + Redis task queue with a scheduled beat config (daily subdomain
-  enum, weekly vuln scan, monthly reports — the last two are stubs)
-- Real subprocess integration with `subfinder`, `httpx`, `naabu` — parses
-  their JSON output and reconciles it against the asset inventory
-  (new/dead subdomain tracking, dangerous port detection)
-- Client onboarding automatically triggers baseline recon (Module 7)
+---
 
-## Run it
+## Table of contents
+
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+  - [Option A — Docker (recommended)](#option-a--docker-recommended)
+  - [Option B — Manual / local development setup](#option-b--manual--local-development-setup)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Running the tests](#running-the-tests)
+- [Database migrations](#database-migrations)
+- [Project structure](#project-structure)
+- [Security notice](#security-notice)
+
+---
+
+## Prerequisites
+
+### Option A: Docker (recommended)
+
+This is the easiest path — Docker builds and installs every tool listed in
+Option B for you. All you need on your machine is:
+
+| Tool | Version | Check with |
+|---|---|---|
+| [Docker Engine](https://docs.docker.com/engine/install/) | 24+ | `docker --version` |
+| [Docker Compose](https://docs.docker.com/compose/install/) (plugin, `docker compose`, not the old standalone `docker-compose`) | v2 | `docker compose version` |
+
+### Option B: Manual / local development setup
+
+If you're not using Docker, install these yourself:
+
+| Tool | Version | Why | Install |
+|---|---|---|---|
+| [Python](https://www.python.org/downloads/) | 3.11+ | Backend runtime | `python3 --version` |
+| [Node.js](https://nodejs.org/) | 20+ | Frontend runtime | `node --version` |
+| [PostgreSQL](https://www.postgresql.org/download/) | 15+ | Primary database | `psql --version` |
+| [Redis](https://redis.io/docs/getting-started/installation/) | 7+ | Celery broker/result backend, per-client scan concurrency locking | `redis-server --version` |
+| [Go](https://go.dev/doc/install) | 1.21+ | Only needed to build the recon tools below | `go version` |
+
+**Security/recon tools** (installed as Go binaries, except `nmap`/`dig`
+which come from your OS package manager). Every recon function degrades
+gracefully and logs a warning if its tool isn't found — you don't need
+all of these to run the app, just to get real scan results instead of
+empty ones:
 
 ```bash
-cp backend/.env.example backend/.env
-# fill in ANTHROPIC_API_KEY, any recon API keys you have, and change SECRET_KEY
-docker compose up --build
+# Go-based recon tools
+go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
+go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
+go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+go install -v github.com/owasp-amass/amass/v4/...@master
+nuclei -update-templates
 
-# bootstrap your first admin login (one-time)
+# make sure $(go env GOPATH)/bin (usually ~/go/bin) is on your PATH
+export PATH="$PATH:$(go env GOPATH)/bin"
+
+# OS packages (Debian/Ubuntu example — adjust for your platform)
+sudo apt-get install -y nmap dnsutils
+```
+
+**PDF report generation** (WeasyPrint) needs a few native rendering
+libraries. Skip this if you don't need PDF/DOCX report export locally:
+
+```bash
+# Debian/Ubuntu
+sudo apt-get install -y libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0 libcairo2
+
+# macOS (Homebrew)
+brew install pango cairo gdk-pixbuf
+```
+
+**Optional, only if you'll audit GCP or Azure cloud accounts** (Module 4):
+the `google-cloud-storage`, `google-api-python-client`, `azure-identity`,
+`azure-mgmt-*` Python packages — see the "Optional" section of
+`backend/requirements.txt`. AWS auditing (`boto3`) is always installed.
+
+---
+
+## Installation
+
+### Option A: Docker (recommended)
+
+```bash
+git clone <this-repo-url>
+cd DNM-DEFENCE
+
+cp backend/.env.example backend/.env
+# edit backend/.env — at minimum set ANTHROPIC_API_KEY and change SECRET_KEY
+# (recon/threat-intel API keys are optional; each integration degrades
+# gracefully and just skips that signal if its key is empty)
+
+docker compose up --build
+```
+
+This starts Postgres, Redis, the FastAPI API, a Celery worker, Celery beat
+(the scheduler), and the frontend dev server — and runs database
+migrations automatically on startup.
+
+```bash
+# one-time: create your first admin login
 docker compose exec api python -m app.scripts.create_admin you@yourcompany.com
 ```
 
-API docs: http://localhost:8000/docs
-Portal: http://localhost:5173 (log in with the admin account you just created)
+- API + interactive docs: http://localhost:8000/docs (docs only mount when `ENV=development`)
+- Portal: http://localhost:5173
 
-Every endpoint now requires auth. Get a token first:
+### Option B: Manual / local development setup
+
+**Backend:**
+```bash
+cd backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+cp .env.example .env
+# edit .env: point DATABASE_URL at your local Postgres, set ANTHROPIC_API_KEY,
+# change SECRET_KEY, set REDIS_URL if not running on localhost:6379
+
+alembic upgrade head
+python -m app.scripts.create_admin you@yourcompany.com
+
+uvicorn app.main:app --reload
+```
+
+**Celery worker + beat scheduler** (separate terminals, same venv):
+```bash
+celery -A app.workers.celery_app worker --loglevel=info
+celery -A app.workers.celery_app beat --loglevel=info
+```
+
+**Frontend:**
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Visit http://localhost:5173 — it proxies `/api` requests to the backend on `:8000`.
+
+---
+
+## Configuration
+
+All configuration lives in `backend/.env` (see `backend/.env.example` for
+the full list with defaults). The essentials:
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `SECRET_KEY` | Yes | JWT signing key — the app refuses to start in non-dev mode with the placeholder value |
+| `ANTHROPIC_API_KEY` | Yes | Powers AI report/digest/remediation generation |
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `REDIS_URL` / `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` | Yes | Redis connection for Celery + scan concurrency locking |
+| `ENCRYPTION_KEY` | Yes (once you register any cloud account) | Fernet key encrypting stored cloud credentials — generate with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `ALLOWED_ORIGINS` | Yes outside dev | Comma-separated portal origin(s) for CORS |
+| `SHODAN_API_KEY`, `CENSYS_API_ID`/`SECRET`, `HIBP_API_KEY`, `DEHASHED_API_KEY`, `GITHUB_TOKEN` | No | Optional threat-intel integrations — each one just skips its signal if unset |
+| `SENDGRID_API_KEY`, `SLACK_BOT_TOKEN` | No | Email/Slack alert delivery — alerts are still drafted and logged without these |
+| `FORCE_HTTPS`, `MFA_REQUIRED_FOR_STAFF` | No | Harden before any real deployment — see [Security notice](#security-notice) |
+
+**Before deploying anywhere other than localhost**, at minimum: change
+`SECRET_KEY` to a long random value, set `ALLOWED_ORIGINS` to your real
+portal domain, and set `FORCE_HTTPS=true`.
+
+---
+
+## Usage
+
+Once the app is running and you've created an admin account:
+
+**1. Log in to the portal** at http://localhost:5173, or get an API token directly:
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
   -d "username=you@yourcompany.com&password=yourpassword" | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
 ```
 
-Onboard a client:
+**2. Onboard a client** — this automatically queues baseline recon (subdomain
+enumeration) as soon as the client is created:
 ```bash
 curl -X POST http://localhost:8000/api/clients \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"Test Client","root_domain":"example.com","contact_email":"you@example.com"}'
 ```
 
-This queues a subdomain enum scan automatically. Check progress:
+**3. Check scan progress and discovered assets:**
 ```bash
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/clients/{client_id}/scans
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/clients/{client_id}/assets
 ```
 
-**Important:** only ever scan domains you have explicit written authorization
-for (client scope agreement or your own test targets like OWASP Juice Shop).
-Active scanning (naabu full-range, brute-force subdomain enum) against
-domains you don't control is illegal.
+**4. Trigger scans on demand** (vulnerability, dark web/threat intel, cloud
+audit) and **generate an AI-drafted monthly report** — see the module
+sections below for the full set of endpoints, or just drive it all from the
+portal UI at `/clients/{client_id}`, which has one-click buttons for each.
 
-## Run the tests
+**5. Explore the full API** at http://localhost:8000/docs (Swagger UI,
+dev mode only) — every router is documented with its auth/tenant-isolation
+behavior.
+
+> **Important — authorized scanning only.** Only ever scan domains you have
+> explicit written authorization for (a signed client scope agreement, or
+> your own test targets like OWASP Juice Shop / `scanme.nmap.org`). Active
+> scanning (naabu full-range port scans, brute-force subdomain enumeration,
+> nuclei's `default-logins` credential checks) against domains you don't
+> control is illegal.
+
+---
+
+## Running the tests
 
 ```bash
 cd backend
-pip install -r requirements.txt --break-system-packages
+pip install -r requirements.txt
 pytest tests/ -v
 ```
 
-Tests run against an isolated sqlite DB (no Postgres/Redis needed), so
-this works standalone without `docker compose up`.
+Tests run against an isolated sqlite DB (no Postgres/Redis required), so
+this works standalone without `docker compose up`. `pytest tests/ -v --cov=app --cov-report=term-missing`
+adds a coverage report, matching what CI runs.
 
 ## Database migrations
 
@@ -76,8 +242,50 @@ alembic upgrade head
 
 `docker-compose`'s `api` service runs `alembic upgrade head` automatically
 on every start, so this only matters when you've changed a model and need
-to generate the migration for it.
-domains you don't control is illegal.
+to generate the migration for it. Autogenerate against sqlite produces
+spurious `NUMERIC`→`UUID` noise on every id/foreign-key column (sqlite has
+no native UUID type) — safe to drop from the generated migration file; see
+the comment in `backend/alembic/versions/8d2b7ca2c7e3_add_risk_analysis.py`.
+
+## Project structure
+
+```
+backend/
+  app/
+    api/            FastAPI routers (one per resource: clients, assets, findings, ...)
+    core/           auth, config, db session, crypto, rate limiting, audit logging
+    models/         SQLAlchemy models (single models.py, all entities)
+    schemas/        shared Pydantic schemas (routers also define local *Out/*Update models)
+    services/       one file per module — the actual business logic (recon.py, vuln_scan.py,
+                     threat_intel.py, cspm.py, ai_reports.py, compliance.py, notifications.py, ...)
+    workers/        Celery app + tasks.py (every scheduled/triggered background job)
+    templates/      Jinja2 templates for report HTML→PDF rendering
+  alembic/          database migrations
+  tests/            pytest suite — one file per feature area, mocked external calls
+  loadtest/         Locust scenarios
+frontend/
+  src/
+    api/client.js   the only file that talks to the backend — thin axios wrappers
+    pages/          one component per portal page (Dashboard, Assets, Findings, ...)
+    components/     shared UI pieces (SeverityBadge, RiskScoreRadial, ...)
+```
+
+Each module maps directly to a file in `app/services/` and a set of Celery
+tasks in `app/workers/tasks.py` — follow the pattern already set by
+`services/recon.py`, `services/threat_intel.py`, and `services/cspm.py`.
+
+## Security notice
+
+This platform is itself a security tool — it performs active scanning,
+stores client credentials, and handles sensitive findings data. Before any
+real deployment:
+
+- Change `SECRET_KEY` from the placeholder; set `ENCRYPTION_KEY`.
+- Set `FORCE_HTTPS=true` and `ALLOWED_ORIGINS` to your real domain(s).
+- Only register **read-only** cloud credentials (AWS `SecurityAudit`/
+  `ReadOnlyAccess` managed policy, or the GCP/Azure equivalents) — never
+  give this platform write access to a client's cloud account.
+- Only scan domains under a signed authorization/scope agreement.
 
 ## What's new in this update — Module 2
 
@@ -742,18 +950,3 @@ Each module maps directly to a file in `app/services/` and a set of Celery
 tasks in `app/workers/tasks.py` — follow the pattern already set by
 `services/recon.py`, `services/threat_intel.py`, and `services/cspm.py`.
 
-## Notes
-
-- `subfinder`/`httpx`/`naabu`/`nuclei`/`amass`/`nmap` are installed in the
-  Docker image already. Locally without Docker, install them via
-  `go install` (see Dockerfile) or the recon functions will just log a
-  warning and return empty results.
-- Migrations are managed by Alembic (`alembic upgrade head`) — the
-  `docker-compose` `api` service runs this automatically on every start.
-  After changing a model, run `alembic revision --autogenerate -m "..."`
-  and review the generated file before committing it (autogenerate
-  against sqlite produces spurious NUMERIC→UUID noise that's safe to
-  drop — see the comment in `8d2b7ca2c7e3_add_risk_analysis.py` for why).
-- Cloud credentials (`CloudAccount.encrypted_credentials`) are
-  Fernet-encrypted before storage (`app/core/crypto.py`) — never store
-  plaintext keys even in dev.
