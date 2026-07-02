@@ -1,20 +1,25 @@
 """
-Module 4 — Cloud Security Posture Management (AWS).
+Module 4 — Cloud Security Posture Management (AWS, GCP, Azure).
 
 Uses read-only, client-provided credentials (decrypted only in memory,
-never logged) to audit S3, IAM, EC2 security groups, EBS/RDS encryption,
-CloudTrail, and GuardDuty. GCP/Azure auditing (Feature 4.2) follows the
-same pattern with their respective SDKs — not yet implemented, see the
-extension point at the bottom.
+never logged) to audit:
+  AWS:   S3, IAM, EC2 security groups, EBS/RDS encryption, CloudTrail, GuardDuty.
+  GCP:   public storage buckets, project-level IAM over-privilege, VPC
+         firewall rules, Cloud SQL public IPs.
+  Azure: Blob Storage public access, NSG rules, Key Vault access
+         policies, AD security defaults (best-effort — needs
+         Policy.Read.All, which many read-only setups won't grant).
 
 The client-provided IAM role/user must be read-only (SecurityAudit or
-ReadOnlyAccess managed policy). Never request write permissions.
+ReadOnlyAccess managed policy, or the GCP/Azure equivalents). Never
+request write permissions.
 """
 import hashlib
 import logging
 from datetime import datetime, timedelta
 
 import boto3
+import httpx
 from botocore.exceptions import ClientError, BotoCoreError
 from sqlalchemy.orm import Session
 
@@ -236,6 +241,8 @@ SEVERITY_BY_ISSUE = {
     "unencrypted_ebs": Severity.medium, "unencrypted_rds": Severity.medium,
     "no_cloudtrail": Severity.high, "cloudtrail_disabled": Severity.high,
     "guardduty_disabled": Severity.low,
+    "gcp_iam_over_privilege": Severity.high, "keyvault_overbroad_access_policy": Severity.medium,
+    "azuread_security_defaults_disabled": Severity.medium,
 }
 CVSS_BY_SEVERITY = {Severity.critical: 9.0, Severity.high: 7.0, Severity.medium: 5.0, Severity.low: 3.0}
 
@@ -280,7 +287,10 @@ def _remediation_for_issue(issue: str) -> str:
         "no_cloudtrail": "Create a CloudTrail trail covering all regions and enable log file validation.",
         "cloudtrail_disabled": "Re-enable logging on this trail immediately — this may indicate tampering.",
         "guardduty_disabled": "Enable GuardDuty in this account and region for continuous threat detection.",
-    }.get(issue, "Review this finding and apply the relevant AWS security best practice.")
+        "gcp_iam_over_privilege": "Replace the direct roles/owner or roles/editor grant with narrower predefined or custom IAM roles scoped to what this user actually needs.",
+        "keyvault_overbroad_access_policy": "Edit the access policy to grant only the specific key/secret/certificate operations this principal needs, not 'all'.",
+        "azuread_security_defaults_disabled": "Enable Azure AD Security Defaults, or ensure Conditional Access policies enforce equivalent MFA/baseline protections tenant-wide.",
+    }.get(issue, "Review this finding and apply the relevant cloud provider security best practice.")
 
 
 # --- Feature 4.2: GCP auditing ---
@@ -359,6 +369,27 @@ def audit_gcp(cloud_account: CloudAccount) -> list[dict]:
     except Exception as e:
         logger.error(f"GCP Cloud SQL audit failed: {e}")
 
+    try:
+        # Feature 4.1/4.2 parity — project-level IAM over-privilege: any
+        # individual user (not a service account, not a group) directly
+        # granted roles/owner or roles/editor at the project level is a
+        # broad-blast-radius grant, mirroring the AWS IAM over-privilege
+        # check's intent.
+        crm = discovery.build("cloudresourcemanager", "v1", credentials=creds, cache_discovery=False)
+        policy = crm.projects().getIamPolicy(resource=project_id, body={}).execute()
+        for binding in policy.get("bindings", []):
+            role = binding.get("role", "")
+            if role not in ("roles/owner", "roles/editor"):
+                continue
+            for member in binding.get("members", []):
+                if member.startswith("user:"):
+                    findings.append({
+                        "resource": f"iam:{member}", "issue": "gcp_iam_over_privilege",
+                        "detail": f"'{member}' is directly granted project-level '{role}' — prefer narrower predefined/custom roles over broad owner/editor access.",
+                    })
+    except Exception as e:
+        logger.error(f"GCP IAM audit failed: {e}")
+
     return findings
 
 
@@ -410,6 +441,46 @@ def audit_azure(cloud_account: CloudAccount) -> list[dict]:
                         })
     except Exception as e:
         logger.error(f"Azure NSG audit failed: {e}")
+
+    try:
+        from azure.mgmt.keyvault import KeyVaultManagementClient
+        kv_client = KeyVaultManagementClient(credential, subscription_id)
+        for vault in kv_client.vaults.list():
+            resource_group = vault.id.split("/")[4]  # .../resourceGroups/{rg}/providers/...
+            details = kv_client.vaults.get(resource_group, vault.name)
+            for policy in (details.properties.access_policies or []):
+                perms = policy.permissions
+                broad = [
+                    cat for cat, granted in (("keys", perms.keys), ("secrets", perms.secrets), ("certificates", perms.certificates))
+                    if granted and "all" in [p.lower() for p in granted]
+                ]
+                if broad:
+                    findings.append({
+                        "resource": f"keyvault:{vault.name}", "issue": "keyvault_overbroad_access_policy",
+                        "detail": f"Key Vault '{vault.name}' grants principal '{policy.object_id}' 'all' permissions on {', '.join(broad)} — scope to only the specific operations needed.",
+                    })
+    except ImportError:
+        logger.warning("azure-mgmt-keyvault not installed — skipping Key Vault audit")
+    except Exception as e:
+        logger.error(f"Azure Key Vault audit failed: {e}")
+
+    try:
+        # Azure AD security defaults, via a direct Graph REST call (no
+        # separate Graph SDK dependency) -- best-effort: requires the app
+        # registration to have Policy.Read.All, which many read-only
+        # setups won't grant, so a 403 here is common and non-fatal.
+        token = credential.get_token("https://graph.microsoft.com/.default").token
+        resp = httpx.get(
+            "https://graph.microsoft.com/v1.0/policies/identitySecurityDefaultsEnforcementPolicy",
+            headers={"Authorization": f"Bearer {token}"}, timeout=15,
+        )
+        if resp.status_code == 200 and resp.json().get("isEnabled") is False:
+            findings.append({
+                "resource": "azuread:security-defaults", "issue": "azuread_security_defaults_disabled",
+                "detail": "Azure AD Security Defaults are disabled — MFA and other baseline protections aren't enforced tenant-wide unless Conditional Access policies cover the gap.",
+            })
+    except Exception as e:
+        logger.info(f"Azure AD security defaults check skipped (often needs Policy.Read.All): {e}")
 
     return findings
 
@@ -470,6 +541,92 @@ def discover_aws_assets(cloud_account: CloudAccount) -> list[dict]:
         logger.error(f"Lambda asset discovery failed: {e}")
 
     return assets
+
+
+def discover_gcp_assets(cloud_account: CloudAccount) -> list[dict]:
+    """Feature 1.4 — enumerates GCS buckets and Compute Engine instances so GCP resources show up in the Asset inventory."""
+    assets = []
+    try:
+        from google.cloud import storage as gcs
+        from googleapiclient import discovery
+    except ImportError:
+        logger.warning("google-cloud SDK not installed — skipping GCP asset discovery")
+        return assets
+
+    creds = _gcp_credentials_from_account(cloud_account)
+    project_id = cloud_account.account_identifier
+
+    try:
+        storage_client = gcs.Client(project=project_id, credentials=creds)
+        for bucket in storage_client.list_buckets():
+            assets.append({"value": f"gcs://{bucket.name}", "source": "gcp_storage", "tech_stack": {}})
+    except Exception as e:
+        logger.error(f"GCP storage asset discovery failed: {e}")
+
+    try:
+        compute = discovery.build("compute", "v1", credentials=creds, cache_discovery=False)
+        agg = compute.instances().aggregatedList(project=project_id).execute()
+        for zone, scoped in agg.get("items", {}).items():
+            for inst in scoped.get("instances", []):
+                assets.append({"value": inst["name"], "source": "gcp_compute",
+                                "tech_stack": {"zone": zone, "status": inst.get("status")}})
+    except Exception as e:
+        logger.error(f"GCP compute asset discovery failed: {e}")
+
+    return assets
+
+
+def discover_azure_assets(cloud_account: CloudAccount) -> list[dict]:
+    """Feature 1.4 — enumerates Storage Accounts and VMs so Azure resources show up in the Asset inventory."""
+    assets = []
+    try:
+        from azure.identity import ClientSecretCredential
+        from azure.mgmt.storage import StorageManagementClient
+    except ImportError:
+        logger.warning("azure SDK not installed — skipping Azure asset discovery")
+        return assets
+
+    creds_dict = decrypt_credentials(cloud_account.encrypted_credentials)
+    credential = ClientSecretCredential(
+        tenant_id=creds_dict["tenant_id"], client_id=creds_dict["client_id"], client_secret=creds_dict["client_secret"],
+    )
+    subscription_id = cloud_account.account_identifier
+
+    try:
+        storage_client = StorageManagementClient(credential, subscription_id)
+        for account in storage_client.storage_accounts.list():
+            assets.append({"value": f"storage:{account.name}", "source": "azure_storage",
+                            "tech_stack": {"location": account.location}})
+    except Exception as e:
+        logger.error(f"Azure storage asset discovery failed: {e}")
+
+    try:
+        from azure.mgmt.compute import ComputeManagementClient
+        compute_client = ComputeManagementClient(credential, subscription_id)
+        for vm in compute_client.virtual_machines.list_all():
+            assets.append({"value": vm.name, "source": "azure_vm",
+                            "tech_stack": {"location": vm.location, "vm_size": vm.hardware_profile.vm_size if vm.hardware_profile else None}})
+    except ImportError:
+        logger.warning("azure-mgmt-compute not installed — skipping Azure VM asset discovery")
+    except Exception as e:
+        logger.error(f"Azure VM asset discovery failed: {e}")
+
+    return assets
+
+
+CLOUD_ASSET_DISCOVERY_DISPATCH = {
+    CloudProvider.aws: discover_aws_assets,
+    CloudProvider.gcp: discover_gcp_assets,
+    CloudProvider.azure: discover_azure_assets,
+}
+
+
+def discover_cloud_assets(cloud_account: CloudAccount) -> list[dict]:
+    """Single entry point — dispatches asset discovery to the right provider, matching run_cloud_audit's pattern."""
+    fn = CLOUD_ASSET_DISCOVERY_DISPATCH.get(cloud_account.provider)
+    if not fn:
+        return []
+    return fn(cloud_account)
 
 
 def sync_cloud_assets_to_db(db: Session, client: Client, cloud_account: CloudAccount, discovered: list[dict]) -> int:

@@ -46,6 +46,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.tasks.check_dns_and_ssl_all_clients",
         "schedule": crontab(hour=4, minute=30),  # 4:30 AM UTC daily
     },
+    "daily-metric-snapshot-all-clients": {
+        "task": "app.workers.tasks.snapshot_client_metrics_all_clients",
+        "schedule": crontab(hour=1, minute=0),  # 1 AM UTC daily — before other scans run
+    },
     "weekly-full-vuln-scan-all-clients": {
         "task": "app.workers.tasks.run_vuln_scan_all_clients",
         "schedule": crontab(hour=3, minute=0, day_of_week=1),  # Monday 3 AM

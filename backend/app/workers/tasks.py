@@ -4,15 +4,17 @@ across async task boundaries) and always records a ScanRun row so the
 platform health monitor (Module 7) can detect stuck/failed jobs.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
+from app.core.concurrency import try_acquire_scan_slot, release_scan_slot
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.models import (
     Client, Asset, AssetType, ScanRun, ScanStatus, ScanType, CloudAccount,
-    Finding, FindingStatus, Severity,
+    Finding, FindingStatus, Severity, MetricSnapshot,
 )
-from app.services import recon, vuln_scan, threat_intel, cspm, ai_reports, notifications, pentest_scheduling, dns_ssl_monitor
+from app.services import recon, vuln_scan, threat_intel, cspm, ai_reports, notifications, pentest_scheduling, dns_ssl_monitor, auth_protocol_checks
+from app.services.risk_score import compute_risk_score
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,9 @@ def _draft_alerts_for_recent_critical_findings(db, client_id: str, since):
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=300)
 def run_subdomain_enum_for_client(self, client_id: str):
     """Feature 1.1 — Automated Subdomain Enumeration for a single client."""
+    if not try_acquire_scan_slot(client_id):
+        logger.info(f"Client {client_id} at max concurrent scans — retrying shortly.")
+        raise self.retry(countdown=60)
     db = SessionLocal()
     scan = ScanRun(client_id=client_id, scan_type=ScanType.subdomain_enum,
                     status=ScanStatus.running, started_at=datetime.utcnow())
@@ -53,8 +58,10 @@ def run_subdomain_enum_for_client(self, client_id: str):
 
         subfinder_hosts = recon.run_subfinder(client.root_domain)
         amass_hosts = recon.run_amass(client.root_domain)
-        hosts = sorted(set(subfinder_hosts) | set(amass_hosts))
+        bruteforce_hosts = recon.run_subdomain_bruteforce(client.root_domain)
+        hosts = sorted(set(subfinder_hosts) | set(amass_hosts) | set(bruteforce_hosts))
         new_count, new_hosts = recon.sync_subdomains_to_db(db, client_id, hosts)
+        new_subdomain_findings = recon.sync_new_subdomain_findings_to_db(db, client, new_hosts)
 
         # Probe liveness + tech stack on everything we found (Feature 1.3)
         tech_data = recon.run_httpx_probe(hosts)
@@ -63,16 +70,27 @@ def run_subdomain_enum_for_client(self, client_id: str):
                 asset.tech_stack = tech_data[asset.value]
         db.commit()
 
+        # Feature 1.3 — security header analysis + CVE matching on live hosts
+        live_hosts = [h for h, info in tech_data.items() if info.get("status_code")]
+        header_results = recon.check_security_headers(live_hosts)
+        header_findings = recon.sync_header_findings_to_db(db, client, header_results)
+
+        tech_by_host = {h: info.get("tech", []) for h, info in tech_data.items()}
+        cve_hits = recon.check_cve_matches(tech_by_host)
+        cve_findings = recon.sync_cve_findings_to_db(db, client, cve_hits)
+
         scan.status = ScanStatus.completed
         scan.finished_at = datetime.utcnow()
         scan.new_assets_found = new_count
+        scan.new_findings_found = new_subdomain_findings + header_findings + cve_findings
         db.commit()
+        _draft_alerts_for_recent_critical_findings(db, client_id, scan.started_at)
 
         if new_hosts:
-            # Hook: fires Feature 1.1 "new subdomain" alert via the alert engine (Module 5.2)
             logger.info(f"[{client.name}] {new_count} new subdomains: {new_hosts}")
 
-        return {"client_id": client_id, "total_hosts": len(hosts), "new_hosts": new_count}
+        return {"client_id": client_id, "total_hosts": len(hosts), "new_hosts": new_count,
+                "header_findings": header_findings, "cve_findings": cve_findings}
 
     except Exception as exc:
         scan.status = ScanStatus.failed
@@ -81,6 +99,7 @@ def run_subdomain_enum_for_client(self, client_id: str):
         db.commit()
         raise self.retry(exc=exc)
     finally:
+        release_scan_slot(client_id)
         db.close()
 
 
@@ -100,6 +119,9 @@ def run_subdomain_enum_all_clients():
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=300)
 def run_port_scan_for_client(self, client_id: str, full_range: bool = False):
     """Feature 1.2 — Port & Service Scanning."""
+    if not try_acquire_scan_slot(client_id):
+        logger.info(f"Client {client_id} at max concurrent scans — retrying shortly.")
+        raise self.retry(countdown=60)
     db = SessionLocal()
     scan = ScanRun(client_id=client_id, scan_type=ScanType.port_scan,
                     status=ScanStatus.running, started_at=datetime.utcnow())
@@ -107,6 +129,10 @@ def run_port_scan_for_client(self, client_id: str, full_range: bool = False):
     db.commit()
 
     try:
+        client = db.query(Client).get(client_id)
+        if not client:
+            raise ValueError(f"Client {client_id} not found")
+
         assets = db.query(Asset).filter_by(client_id=client_id, is_alive=True).all()
         hosts = [a.value for a in assets]
         port_results = recon.run_naabu_portscan(hosts, full_range=full_range)
@@ -118,7 +144,7 @@ def run_port_scan_for_client(self, client_id: str, full_range: bool = False):
         nmap_results = recon.run_nmap_service_scan(hosts_with_ports) if hosts_with_ports else {}
 
         new_ports_total = 0
-        dangerous_found = []
+        all_new_port_details = []
         for asset in assets:
             ports = port_results.get(asset.value, [])
             # Merge nmap's service/version data into naabu's port list where they overlap
@@ -129,21 +155,24 @@ def run_port_scan_for_client(self, client_id: str, full_range: bool = False):
                     p["service_guess"] = nmap_match.get("product") or p.get("service_guess")
                     p["service_version"] = nmap_match.get("version")
 
-            new_ports_total += recon.sync_ports_to_db(db, asset, ports)
-            for p in ports:
-                if p["is_dangerous"]:
-                    dangerous_found.append((asset.value, p["port"], p["service_guess"]))
+            asset_new_count, asset_new_details = recon.sync_ports_to_db(db, asset, ports)
+            new_ports_total += asset_new_count
+            all_new_port_details.extend(asset_new_details)
+
+        port_findings = recon.sync_port_findings_to_db(db, client, all_new_port_details)
+        _draft_alerts_for_recent_critical_findings(db, client_id, scan.started_at)
 
         scan.status = ScanStatus.completed
         scan.finished_at = datetime.utcnow()
-        scan.new_findings_found = new_ports_total
+        scan.new_findings_found = port_findings
         db.commit()
 
+        dangerous_found = [d for d in all_new_port_details if d["dangerous"]]
         if dangerous_found:
-            # Hook: Feature 1.2 "dangerous service alert" — critical severity, fires immediately
             logger.warning(f"Dangerous exposed services for client {client_id}: {dangerous_found}")
 
-        return {"client_id": client_id, "hosts_scanned": len(hosts), "new_ports": new_ports_total}
+        return {"client_id": client_id, "hosts_scanned": len(hosts), "new_ports": new_ports_total,
+                "port_findings": port_findings}
 
     except Exception as exc:
         scan.status = ScanStatus.failed
@@ -152,12 +181,16 @@ def run_port_scan_for_client(self, client_id: str, full_range: bool = False):
         db.commit()
         raise self.retry(exc=exc)
     finally:
+        release_scan_slot(client_id)
         db.close()
 
 
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=600)
 def run_vuln_scan_for_client(self, client_id: str, severity_filter: str | None = None):
     """Module 2 — Vulnerability Detection & Scoring (nuclei-based)."""
+    if not try_acquire_scan_slot(client_id):
+        logger.info(f"Client {client_id} at max concurrent scans — retrying shortly.")
+        raise self.retry(countdown=60)
     db = SessionLocal()
     scan = ScanRun(client_id=client_id, scan_type=ScanType.vuln_scan,
                     status=ScanStatus.running, started_at=datetime.utcnow())
@@ -181,7 +214,15 @@ def run_vuln_scan_for_client(self, client_id: str, severity_filter: str | None =
             return {"client_id": client_id, "message": "no live hosts to scan"}
 
         raw_findings = vuln_scan.run_nuclei_scan(live_hosts, severity_filter=severity_filter)
+        raw_findings += vuln_scan.run_nuclei_default_logins_scan(live_hosts)
         new_count, resolved_count = vuln_scan.sync_findings_to_db(db, client, raw_findings)
+
+        # Feature 2.3 — JWT weakness + OAuth2 misconfiguration checks
+        jwt_hits = auth_protocol_checks.discover_and_check_jwts(live_hosts)
+        oauth_hits = auth_protocol_checks.check_oauth_misconfig(live_hosts)
+        auth_protocol_findings = auth_protocol_checks.sync_auth_protocol_findings_to_db(db, client, jwt_hits, oauth_hits)
+        new_count += auth_protocol_findings
+
         _draft_alerts_for_recent_critical_findings(db, client_id, scan.started_at)
 
         scan.status = ScanStatus.completed
@@ -202,6 +243,7 @@ def run_vuln_scan_for_client(self, client_id: str, severity_filter: str | None =
         db.commit()
         raise self.retry(exc=exc)
     finally:
+        release_scan_slot(client_id)
         db.close()
 
 
@@ -221,6 +263,9 @@ def run_vuln_scan_all_clients():
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=600)
 def run_dark_web_scan_for_client(self, client_id: str):
     """Module 3 — Dark Web & Threat Intelligence Monitoring."""
+    if not try_acquire_scan_slot(client_id):
+        logger.info(f"Client {client_id} at max concurrent scans — retrying shortly.")
+        raise self.retry(countdown=60)
     db = SessionLocal()
     scan = ScanRun(client_id=client_id, scan_type=ScanType.dark_web_scan,
                     status=ScanStatus.running, started_at=datetime.utcnow())
@@ -234,6 +279,8 @@ def run_dark_web_scan_for_client(self, client_id: str):
 
         breaches = threat_intel.check_hibp_breaches(client.root_domain)
         github_hits = threat_intel.check_github_secret_leaks(client.root_domain)
+        paste_hits = threat_intel.check_paste_sites(client.root_domain)
+        dehashed_hits = threat_intel.check_dehashed(client.root_domain)
 
         ip_assets = [a.value for a in db.query(Asset).filter_by(client_id=client_id, asset_type=AssetType.ip)]
         # Also resolve A records for live subdomains -- IOC/exposure feeds
@@ -251,9 +298,11 @@ def run_dark_web_scan_for_client(self, client_id: str):
         shodan_hits = threat_intel.check_shodan(resolved_ips)
         censys_hits = threat_intel.check_censys(resolved_ips)
         abusech_hits = threat_intel.check_abusech(resolved_ips)
+        et_hits = threat_intel.check_emerging_threats(resolved_ips)
 
         new_count = threat_intel.sync_intel_findings_to_db(
-            db, client, breaches, github_hits, blocklist_hits, shodan_hits, censys_hits, abusech_hits
+            db, client, breaches, github_hits, blocklist_hits, shodan_hits, censys_hits, abusech_hits,
+            paste_hits, dehashed_hits, et_hits,
         )
         _draft_alerts_for_recent_critical_findings(db, client_id, scan.started_at)
 
@@ -276,6 +325,7 @@ def run_dark_web_scan_for_client(self, client_id: str):
         db.commit()
         raise self.retry(exc=exc)
     finally:
+        release_scan_slot(client_id)
         db.close()
 
 
@@ -295,6 +345,9 @@ def run_dark_web_scan_all_clients():
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=600)
 def run_cloud_audit_for_client(self, client_id: str):
     """Module 4 — Cloud Security Posture Management. Audits every active cloud account for the client."""
+    if not try_acquire_scan_slot(client_id):
+        logger.info(f"Client {client_id} at max concurrent scans — retrying shortly.")
+        raise self.retry(countdown=60)
     db = SessionLocal()
     scan = ScanRun(client_id=client_id, scan_type=ScanType.cloud_audit,
                     status=ScanStatus.running, started_at=datetime.utcnow())
@@ -328,10 +381,9 @@ def run_cloud_audit_for_client(self, client_id: str):
                     ])
             account.config_baseline = cspm.snapshot_baseline(raw_findings)
 
-            # Feature 1.4 — cloud asset discovery into the main Asset inventory (AWS only for now)
-            if account.provider.value == "aws":
-                discovered = cspm.discover_aws_assets(account)
-                cspm.sync_cloud_assets_to_db(db, client, account, discovered)
+            # Feature 1.4 — cloud asset discovery into the main Asset inventory (all providers)
+            discovered = cspm.discover_cloud_assets(account)
+            cspm.sync_cloud_assets_to_db(db, client, account, discovered)
 
         db.commit()
         _draft_alerts_for_recent_critical_findings(db, client_id, scan.started_at)
@@ -353,6 +405,7 @@ def run_cloud_audit_for_client(self, client_id: str):
         db.commit()
         raise self.retry(exc=exc)
     finally:
+        release_scan_slot(client_id)
         db.close()
 
 
@@ -437,6 +490,7 @@ def send_weekly_threat_digests():
     db = SessionLocal()
     try:
         clients = db.query(Client).filter_by(is_active=True).all()
+        week_ago = datetime.utcnow() - timedelta(days=7)
         for client in clients:
             recent = (
                 db.query(Finding)
@@ -445,7 +499,14 @@ def send_weekly_threat_digests():
                 .limit(10)
                 .all()
             )
-            digest = ai_reports.generate_weekly_threat_digest(client, [f.title for f in recent])
+            # Feature 5.3 — ground the digest in this week's real CVE
+            # matches (Module 1.3) and threat-intel hits (Module 3)
+            # instead of asking Claude to recall "current" threats.
+            this_week = db.query(Finding).filter(Finding.client_id == client.id, Finding.created_at >= week_ago).all()
+            cve_hits = [f.evidence for f in this_week if f.cve_id and isinstance(f.evidence, dict)]
+            threat_intel_hits = [f.evidence for f in this_week if not f.cve_id and isinstance(f.evidence, dict) and "note" in f.evidence]
+
+            digest = ai_reports.generate_weekly_threat_digest(client, [f.title for f in recent], cve_hits, threat_intel_hits)
             logger.info(f"[{client.name}] Weekly threat digest:\n{digest}")
             notifications.notify_weekly_digest(client, digest)
         return {"clients_processed": len(clients)}
@@ -491,9 +552,13 @@ def check_scan_health():
 def check_sla_escalations():
     """
     SLA enforcement (Module 7 / Feature 2.4): findings whose sla_deadline
-    has passed while still open get flagged for escalation. Actual paging/
-    Slack alerting isn't wired yet — this task is the detection half; hook
-    a notification send where marked below once delivery exists.
+    has passed while still open get escalated. Escalation is real state,
+    not just a repeated log line -- escalation_count/escalated_at track
+    it on the Finding itself (surfaced as an "ESCALATED" badge in the
+    portal), and a fresh critical-alert draft gets queued so the human
+    review queue actually reflects the ongoing breach. Capped to once per
+    24h per finding so the hourly beat schedule doesn't spam duplicate
+    escalations for the same still-overdue finding.
     """
     db = SessionLocal()
     try:
@@ -503,16 +568,27 @@ def check_sla_escalations():
             Finding.status.notin_([FindingStatus.resolved, FindingStatus.verified]),
         ).all()
 
+        escalated = 0
         for f in overdue:
+            if f.escalated_at and (now - f.escalated_at) < timedelta(hours=24):
+                continue  # already escalated recently, don't re-escalate every hourly tick
+
+            f.escalation_count = (f.escalation_count or 0) + 1
+            f.escalated_at = now
+            escalated += 1
+
             logger.warning(
-                f"SLA BREACH: finding {f.id} ('{f.title}', {f.severity.value}) for client {f.client_id} "
-                f"was due {f.sla_deadline}, still status={f.status.value}"
+                f"SLA BREACH (escalation #{f.escalation_count}): finding {f.id} ('{f.title}', {f.severity.value}) "
+                f"for client {f.client_id} was due {f.sla_deadline}, still status={f.status.value}"
             )
             client = db.query(Client).get(f.client_id)
             if client:
                 notifications.notify_sla_breach(client, f.title, f.severity.value, f.sla_deadline)
+            if f.severity in (Severity.critical, Severity.high):
+                draft_alert_for_finding.delay(f.id)
 
-        return {"overdue_findings": len(overdue)}
+        db.commit()
+        return {"overdue_findings": len(overdue), "newly_escalated": escalated}
     finally:
         db.close()
 
@@ -582,8 +658,47 @@ def check_dns_and_ssl_for_client(client_id: str):
                 ))
                 new_count += 1
 
+        # Feature 2.3 — deep TLS configuration scan (weak protocols/ciphers),
+        # distinct from the cert-expiry check above. Capped same as ssl_flags.
+        for hostname in live_hosts[:50]:
+            sslyze_result = recon.run_sslyze_scan(hostname)
+            if not sslyze_result or not sslyze_result.get("issues"):
+                continue
+            for issue in sslyze_result["issues"]:
+                dedup = hashlib.sha256(f"{client_id}:sslyze:{hostname}:{issue}".encode()).hexdigest()
+                if db.query(Finding).filter_by(dedup_hash=dedup).first():
+                    continue
+                db.add(Finding(
+                    client_id=client_id, title=f"[TLS] Weak configuration — {hostname}",
+                    description=issue, severity=Severity.medium, cvss_score=5.0,
+                    status=FindingStatus.new, evidence={"hostname": hostname, "issue": issue},
+                    remediation_steps="Disable deprecated TLS/SSL protocol versions and weak cipher suites in the server's TLS configuration.",
+                    dedup_hash=dedup, created_at=now, sla_deadline=now + timedelta(hours=client.sla_hours_high),
+                ))
+                new_count += 1
+
+        # Feature 2.3 — SPF/DKIM/DMARC email security validation
+        email_sec_severity = {
+            "spf_missing": Severity.medium, "spf_multiple_records": Severity.medium, "spf_weak_policy": Severity.low,
+            "dmarc_missing": Severity.medium, "dmarc_policy_none": Severity.low, "dkim_not_found_default_selector": Severity.info,
+        }
+        for issue in dns_ssl_monitor.check_email_security(client.root_domain):
+            dedup = hashlib.sha256(f"{client_id}:email_sec:{issue['issue']}".encode()).hexdigest()
+            if db.query(Finding).filter_by(dedup_hash=dedup).first():
+                continue
+            severity = email_sec_severity.get(issue["issue"], Severity.low)
+            db.add(Finding(
+                client_id=client_id, title=f"[Email] {issue['issue'].replace('_', ' ')} — {client.root_domain}",
+                description=issue["detail"], severity=severity, cvss_score=4.0 if severity == Severity.medium else 2.0,
+                status=FindingStatus.new, evidence=issue,
+                remediation_steps="Add or correct the SPF/DKIM/DMARC DNS TXT records for this domain per RFC 7208 (SPF) and RFC 7489 (DMARC).",
+                dedup_hash=dedup, created_at=now,
+            ))
+            new_count += 1
+
         client.dns_baseline = dns_result["current"]
         db.commit()
+        _draft_alerts_for_recent_critical_findings(db, client_id, now)
 
         return {"client_id": client_id, "dns_changed": dns_result["changed"], "ssl_issues": len(ssl_flags), "new_findings": new_count}
     finally:
@@ -613,6 +728,11 @@ def check_cloud_credential_rotation():
         return {"stale_credential_accounts": len(stale)}
     finally:
         db.close()
+
+
+@celery_app.task
+def check_dns_and_ssl_all_clients():
+    """Scheduled fan-out — queues DNS/SSL monitoring for every active client (Module 7 scheduler)."""
     db = SessionLocal()
     try:
         client_ids = [c.id for c in db.query(Client).filter_by(is_active=True)]
@@ -621,3 +741,48 @@ def check_cloud_credential_rotation():
     for cid in client_ids:
         check_dns_and_ssl_for_client.delay(cid)
     return {"clients_queued": len(client_ids)}
+
+
+@celery_app.task
+def snapshot_client_metrics_all_clients():
+    """
+    Daily rollup: one MetricSnapshot row per active client, recording
+    open-finding counts by severity and the current risk score. Backing
+    data for every trend chart in the spec (dashboard, findings, reports) —
+    written once here instead of each surface recomputing history itself.
+    Also recomputes each Asset.risk_score (Feature 6.2 per-asset risk
+    rating) from findings linked to that specific asset — this column
+    existed on the model but was never actually written anywhere.
+    """
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        clients = db.query(Client).filter_by(is_active=True).all()
+        written = 0
+        for client in clients:
+            open_findings = db.query(Finding).filter(
+                Finding.client_id == client.id,
+                Finding.status.notin_([FindingStatus.resolved, FindingStatus.verified]),
+            ).all()
+            counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+            per_asset_counts = {}
+            for f in open_findings:
+                if f.severity.value in counts:
+                    counts[f.severity.value] += 1
+                if f.asset_id and f.severity.value in counts:
+                    per_asset_counts.setdefault(f.asset_id, {"critical": 0, "high": 0, "medium": 0, "low": 0})
+                    per_asset_counts[f.asset_id][f.severity.value] += 1
+            db.add(MetricSnapshot(
+                client_id=client.id, snapshot_date=now,
+                critical_count=counts["critical"], high_count=counts["high"],
+                medium_count=counts["medium"], low_count=counts["low"],
+                risk_score=compute_risk_score(counts),
+            ))
+
+            for asset in db.query(Asset).filter_by(client_id=client.id):
+                asset.risk_score = compute_risk_score(per_asset_counts.get(asset.id, {}))
+            written += 1
+        db.commit()
+        return {"snapshots_written": written}
+    finally:
+        db.close()

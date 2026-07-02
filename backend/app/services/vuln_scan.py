@@ -54,12 +54,30 @@ CONTEXT_MULTIPLIER = {
     "internal_or_dev": 0.6,
 }
 
+# Fallback CVSS v3.1 vector strings by severity band, used when nuclei's
+# template metadata doesn't carry one -- gives a plausible vector for
+# display/enrichment (attack vector/complexity/privileges/user interaction)
+# rather than leaving the field blank.
+DEFAULT_CVSS_VECTOR_BY_SEVERITY = {
+    Severity.critical: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+    Severity.high: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N",
+    Severity.medium: "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:L/I:L/A:N",
+    Severity.low: "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:L/I:N/A:N",
+    Severity.info: "CVSS:3.1/AV:N/AC:H/PR:H/UI:R/S:U/C:N/I:N/A:N",
+}
 
-def run_nuclei_scan(targets: Iterable[str], severity_filter: str | None = None, timeout: int = 1800) -> list[dict]:
+
+def _default_cvss_vector(severity: Severity) -> str:
+    return DEFAULT_CVSS_VECTOR_BY_SEVERITY[severity]
+
+
+def run_nuclei_scan(targets: Iterable[str], severity_filter: str | None = None, templates: str | None = None, timeout: int = 1800) -> list[dict]:
     """
     Runs nuclei against a list of live hosts/URLs. Returns parsed JSON
     findings. severity_filter e.g. "critical,high" narrows the template set
-    for faster/cheaper scans on a daily cadence.
+    for faster/cheaper scans on a daily cadence. templates e.g.
+    "default-logins/" restricts to a specific template category (see
+    run_nuclei_default_logins_scan).
     """
     targets = list(targets)
     if not targets:
@@ -68,6 +86,8 @@ def run_nuclei_scan(targets: Iterable[str], severity_filter: str | None = None, 
     cmd = ["nuclei", "-silent", "-jsonl", "-rate-limit", "50"]
     if severity_filter:
         cmd += ["-severity", severity_filter]
+    if templates:
+        cmd += ["-t", templates]
 
     try:
         proc = subprocess.run(
@@ -121,8 +141,16 @@ def parse_nuclei_finding(client: Client, raw: dict, asset_by_host: dict[str, Ass
         cvss = DEFAULT_CVSS_BY_SEVERITY[severity]
 
     asset = asset_by_host.get(host)
-    context = "internet_facing_prod"  # default assumption; refine once asset tagging exists
+    # Feature 2.1 business-context scoring: an asset explicitly tagged
+    # internal/dev (Asset.is_internal) gets the discount; anything else
+    # (including unknown assets, since they were reachable enough to scan)
+    # is treated as internet-facing prod, the conservative default.
+    context = "internal_or_dev" if (asset and asset.is_internal) else "internet_facing_prod"
     adjusted_cvss = round(cvss * CONTEXT_MULTIPLIER[context], 1)
+
+    cvss_vector = info.get("classification", {}).get("cvss-metrics")
+    if not cvss_vector:
+        cvss_vector = _default_cvss_vector(severity)
 
     sla_hours = {
         Severity.critical: client.sla_hours_critical,
@@ -136,6 +164,7 @@ def parse_nuclei_finding(client: Client, raw: dict, asset_by_host: dict[str, Ass
         description=info.get("description", ""),
         severity=severity,
         cvss_score=adjusted_cvss,
+        cvss_vector=cvss_vector,
         cve_id=cve_id,
         status=FindingStatus.new,
         evidence={
@@ -193,31 +222,16 @@ def sync_findings_to_db(db: Session, client: Client, raw_findings: list[dict]) -
     return new_count, resolved_count
 
 
-def check_default_credentials(host: str, timeout: int = 10) -> list[dict]:
+def run_nuclei_default_logins_scan(targets: Iterable[str], timeout: int = 900) -> list[dict]:
     """
-    Feature 2.2 — checks a small set of common admin panels for default
-    creds. Deliberately conservative: only flags well-known, safe-to-probe
-    login endpoints (no active exploitation, no brute force beyond the
-    single documented default).
+    Feature 2.2 — default-credential checks via nuclei's own `default-logins`
+    template category, which actually attempts known default credential
+    pairs against fingerprinted panels (Jenkins, Grafana, phpMyAdmin, and
+    everything else nuclei's community templates cover) rather than just
+    checking whether a login page is reachable. Reuses the same nuclei
+    subprocess integration and authorized-scope model as the rest of the
+    vuln scan -- only ever run against a client's own onboarded assets.
+    Returns raw nuclei JSON results in the same shape as run_nuclei_scan,
+    so callers feed them through the same parse_nuclei_finding path.
     """
-    import httpx as httpx_client
-
-    KNOWN_DEFAULTS = [
-        {"path": "/login", "product": "Jenkins", "indicator": "Jenkins"},
-        {"path": "/login", "product": "Grafana", "indicator": "Grafana"},
-        {"path": "/phpmyadmin/", "product": "phpMyAdmin", "indicator": "phpMyAdmin"},
-    ]
-    findings = []
-    for check in KNOWN_DEFAULTS:
-        url = f"https://{host}{check['path']}"
-        try:
-            resp = httpx_client.get(url, timeout=timeout, follow_redirects=True)
-            if resp.status_code == 200 and check["indicator"].lower() in resp.text.lower():
-                findings.append({
-                    "product": check["product"],
-                    "url": url,
-                    "note": f"{check['product']} admin panel is exposed and reachable — verify default credentials are not in use.",
-                })
-        except Exception:
-            continue
-    return findings
+    return run_nuclei_scan(targets, templates="default-logins/", timeout=timeout)

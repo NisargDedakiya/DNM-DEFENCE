@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { listPhishingCampaigns, createPhishingCampaign, startPhishingCampaign, getPhishingTrend } from '../api/client.js'
+import {
+  listPhishingCampaigns, createPhishingCampaign, startPhishingCampaign, getPhishingTrend,
+  getPhishingResults, getTrainingCompletion,
+} from '../api/client.js'
 
 const rate = (n, total) => (total ? Math.round((100 * n) / total) : 0)
 
@@ -9,6 +12,7 @@ export default function Phishing() {
   const { clientId } = useParams()
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
+  const [expanded, setExpanded] = useState(null)
   const [form, setForm] = useState({ name: '', template_name: '', target_count: 0 })
 
   const { data: campaigns, isLoading } = useQuery({ queryKey: ['phishing', clientId], queryFn: () => listPhishingCampaigns(clientId) })
@@ -101,6 +105,13 @@ export default function Phishing() {
                 <Metric label="Reported" value={`${rate(c.reported_count, c.sent_count)}%`} tone="good" />
                 <Metric label="Creds submitted" value={`${rate(c.credential_submitted_count, c.sent_count)}%`} tone="critical" />
               </div>
+              <button
+                onClick={() => setExpanded(expanded === c.id ? null : c.id)}
+                className="text-xs text-signal hover:underline mt-3"
+              >
+                {expanded === c.id ? 'Hide employee results' : 'Show employee results & training completion'}
+              </button>
+              {expanded === c.id && <CampaignDetail clientId={clientId} campaignId={c.id} />}
             </div>
           ))}
         </div>
@@ -115,6 +126,56 @@ function Metric({ label, value, tone }) {
     <div className="text-center bg-panel2 rounded-md py-3">
       <div className={`text-lg font-mono font-semibold ${cls}`}>{value}</div>
       <div className="text-[10px] text-muted uppercase mt-1 font-mono">{label}</div>
+    </div>
+  )
+}
+
+function CampaignDetail({ clientId, campaignId }) {
+  const { data: results, isLoading: resultsLoading } = useQuery({
+    queryKey: ['phishing-results', clientId, campaignId],
+    queryFn: () => getPhishingResults(clientId, campaignId),
+  })
+  const { data: training } = useQuery({
+    queryKey: ['training-completion', clientId, campaignId],
+    queryFn: () => getTrainingCompletion(clientId, campaignId),
+  })
+
+  return (
+    <div className="mt-4 pt-4 border-t border-border/60">
+      {training && (
+        <p className="text-xs text-muted mb-3">
+          Training completion: <span className="text-ink font-mono">{training.percent_completed}%</span>
+          {' '}({training.completed}/{training.total_employees} employees)
+        </p>
+      )}
+      {resultsLoading ? (
+        <p className="text-muted text-xs">Loading results…</p>
+      ) : results?.length === 0 ? (
+        <p className="text-muted text-xs">No individual results recorded yet.</p>
+      ) : (
+        <table className="w-full text-xs">
+          <thead className="text-muted uppercase font-mono">
+            <tr>
+              <th className="text-left py-1">Employee</th>
+              <th className="text-left py-1">Clicked</th>
+              <th className="text-left py-1">Reported</th>
+              <th className="text-left py-1">Creds submitted</th>
+              <th className="text-left py-1">Training</th>
+            </tr>
+          </thead>
+          <tbody>
+            {results?.map((r) => (
+              <tr key={r.id} className="border-t border-border/40">
+                <td className="py-1.5 font-mono">{r.employee_identifier}</td>
+                <td className={r.clicked ? 'text-high' : 'text-muted'}>{r.clicked ? 'Yes' : 'No'}</td>
+                <td className={r.reported ? 'text-good' : 'text-muted'}>{r.reported ? 'Yes' : 'No'}</td>
+                <td className={r.submitted_credentials ? 'text-critical' : 'text-muted'}>{r.submitted_credentials ? 'Yes' : 'No'}</td>
+                <td className={r.training_completed ? 'text-good' : 'text-muted'}>{r.training_completed ? 'Done' : 'Pending'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }

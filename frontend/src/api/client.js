@@ -41,6 +41,10 @@ export const listFindings = (clientId, params = {}) =>
   api.get(`/clients/${clientId}/findings`, { params }).then(r => r.data)
 export const updateFindingStatus = (clientId, findingId, status) =>
   api.patch(`/clients/${clientId}/findings/${findingId}`, { status }).then(r => r.data)
+export const assignFinding = (clientId, findingId, assignedTo) =>
+  api.patch(`/clients/${clientId}/findings/${findingId}/assign`, { assigned_to: assignedTo }).then(r => r.data)
+export const getFindingsTrend = (clientId, months = 3) =>
+  api.get(`/clients/${clientId}/findings/trend`, { params: { months } }).then(r => r.data)
 export const triggerVulnScan = (clientId) => api.post(`/clients/${clientId}/findings/scan`).then(r => r.data)
 export const triggerDarkWebScan = (clientId) => api.post(`/clients/${clientId}/findings/dark-web-scan`).then(r => r.data)
 
@@ -60,10 +64,42 @@ export const listPhishingCampaigns = (clientId) => api.get(`/clients/${clientId}
 export const createPhishingCampaign = (clientId, payload) => api.post(`/clients/${clientId}/phishing-campaigns`, payload).then(r => r.data)
 export const startPhishingCampaign = (clientId, campaignId) => api.post(`/clients/${clientId}/phishing-campaigns/${campaignId}/start`).then(r => r.data)
 export const getPhishingTrend = (clientId) => api.get(`/clients/${clientId}/phishing-campaigns/trend`).then(r => r.data)
+export const getPhishingResults = (clientId, campaignId) =>
+  api.get(`/clients/${clientId}/phishing-campaigns/${campaignId}/results`).then(r => r.data)
+export const getTrainingCompletion = (clientId, campaignId) =>
+  api.get(`/clients/${clientId}/phishing-campaigns/${campaignId}/training-completion`).then(r => r.data)
 
 export const getPentestSchedule = (clientId) => api.get(`/clients/${clientId}/pentest-schedule`).then(r => r.data)
 export const createPentestSchedule = (clientId, payload) => api.post(`/clients/${clientId}/pentest-schedule`, payload).then(r => r.data)
 export const completePentestEngagement = (clientId, payload = {}) =>
   api.post(`/clients/${clientId}/pentest-schedule/complete`, payload).then(r => r.data)
+export const uploadPentestReport = (clientId, file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/clients/${clientId}/pentest-schedule/report`, form).then(r => r.data)
+}
+
+export const uploadComplianceEvidence = (clientId, controlId, file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/clients/${clientId}/compliance/${controlId}/evidence`, form).then(r => r.data)
+}
+
+// Authenticated file downloads must go through axios (so the Bearer token
+// header is attached) rather than a plain <a href> -- this app has no
+// cookie-based session, so a bare anchor tag hitting an authenticated
+// endpoint would 401. Fetches as a blob, then triggers a normal browser
+// save-as via a throwaway object URL.
+export const downloadAuthenticatedFile = async (url, filename) => {
+  const res = await api.get(url, { responseType: 'blob' })
+  const blobUrl = window.URL.createObjectURL(res.data)
+  const link = document.createElement('a')
+  link.href = blobUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(blobUrl)
+}
 
 export default api

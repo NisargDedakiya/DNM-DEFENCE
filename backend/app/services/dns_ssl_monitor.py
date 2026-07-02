@@ -77,6 +77,42 @@ def check_ssl_fleet(hostnames: list[str]) -> list[dict]:
             flagged.append({"hostname": host, "issue": "ssl_unreachable", "detail": "Could not establish a TLS connection to inspect the certificate."})
         elif result["expired"]:
             flagged.append({"hostname": host, "issue": "ssl_expired", "detail": f"Certificate expired {abs(result['days_remaining'])} days ago."})
+        elif result["days_remaining"] <= 7:
+            flagged.append({"hostname": host, "issue": "ssl_expiring_7d", "detail": f"Certificate expires in {result['days_remaining']} days — renew immediately."})
+        elif result["days_remaining"] <= 14:
+            flagged.append({"hostname": host, "issue": "ssl_expiring_14d", "detail": f"Certificate expires in {result['days_remaining']} days."})
         elif result["expiring_soon"]:
-            flagged.append({"hostname": host, "issue": "ssl_expiring_soon", "detail": f"Certificate expires in {result['days_remaining']} days."})
+            flagged.append({"hostname": host, "issue": "ssl_expiring_30d", "detail": f"Certificate expires in {result['days_remaining']} days."})
     return flagged
+
+
+def check_email_security(domain: str, timeout: int = 10) -> list[dict]:
+    """
+    Feature 2.3 — SPF/DKIM/DMARC validation. Checks the domain's SPF (in
+    its TXT records) and DMARC (_dmarc TXT record) for presence and basic
+    syntax. DKIM is checked at the common default selector only, since
+    there's no way to discover a client's actual DKIM selector without
+    them telling us -- a missing check here is a false negative, never a
+    false positive.
+    """
+    issues = []
+    txt_records = get_dns_records(domain, "TXT", timeout=timeout)
+    spf_records = [r for r in txt_records if "v=spf1" in r.lower()]
+    if not spf_records:
+        issues.append({"issue": "spf_missing", "detail": f"No SPF record found for {domain} — mail claiming to be from this domain can't be authenticated by receivers."})
+    elif len(spf_records) > 1:
+        issues.append({"issue": "spf_multiple_records", "detail": f"{domain} has {len(spf_records)} SPF records — RFC 7208 requires exactly one; multiple records make SPF evaluation undefined."})
+    elif not spf_records[0].rstrip('"').endswith(("-all", "~all")):
+        issues.append({"issue": "spf_weak_policy", "detail": f"SPF record for {domain} doesn't end in -all or ~all — it doesn't actually restrict which servers can send mail as this domain."})
+
+    dmarc_records = [r for r in get_dns_records(f"_dmarc.{domain}", "TXT", timeout=timeout) if "v=dmarc1" in r.lower()]
+    if not dmarc_records:
+        issues.append({"issue": "dmarc_missing", "detail": f"No DMARC record found for _dmarc.{domain} — spoofed mail claiming this domain has no enforcement or reporting policy."})
+    elif "p=none" in dmarc_records[0].lower():
+        issues.append({"issue": "dmarc_policy_none", "detail": f"DMARC policy for {domain} is p=none — spoofed mail is monitored but not rejected or quarantined."})
+
+    dkim_records = get_dns_records(f"default._domainkey.{domain}", "TXT", timeout=timeout)
+    if not dkim_records:
+        issues.append({"issue": "dkim_not_found_default_selector", "detail": f"No DKIM record found at the common 'default' selector for {domain}. This is a best-effort check — the client may use a different selector."})
+
+    return issues

@@ -37,6 +37,15 @@ class ClientOut(BaseModel):
     is_active: bool
 
 
+class PortOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    port_number: int
+    protocol: str
+    service_name: str | None
+    service_version: str | None
+    is_dangerous: bool
+
+
 class AssetOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
@@ -48,6 +57,7 @@ class AssetOut(BaseModel):
     is_alive: bool
     tech_stack: dict
     risk_score: float
+    ports: list[PortOut] = []
 
 
 class ScanRunOut(BaseModel):

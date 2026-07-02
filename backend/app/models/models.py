@@ -80,6 +80,9 @@ class Client(Base):
     sla_hours_high = Column(Integer, default=72)
     auto_send_critical_alerts = Column(Boolean, default=False)  # Feature 5.2 — opt-in per client
     dns_baseline = Column(JSON, nullable=True)  # DNS drift monitoring baseline snapshot
+    logo_url = Column(String(500), nullable=True)  # Feature 5.1 — client branding on generated reports
+    brand_color = Column(String(20), nullable=True)  # hex color, e.g. "#1a73e8"
+    phishing_show_employee_names = Column(Boolean, default=False)  # Feature 6.6 — opt-in to named (not anonymized) phishing results for client-role viewers
     onboarded_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)
 
@@ -108,6 +111,7 @@ class Asset(Base):
     is_alive = Column(Boolean, default=True)
     tech_stack = Column(JSON, default=dict)  # {"web_server": "nginx", "cms": "wordpress 5.2", ...}
     risk_score = Column(Float, default=0.0)  # 0-100, derived from open findings
+    is_internal = Column(Boolean, default=False)  # Feature 2.1 business-context scoring: internal/dev vs internet-facing prod
 
     client = relationship("Client", back_populates="assets")
     ports = relationship("Port", back_populates="asset", cascade="all, delete-orphan")
@@ -191,6 +195,7 @@ class Finding(Base):
     description = Column(Text, nullable=True)
     severity = Column(Enum(Severity), nullable=False)
     cvss_score = Column(Float, nullable=True)
+    cvss_vector = Column(String(100), nullable=True)  # e.g. "AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
     cve_id = Column(String(50), nullable=True, index=True)
     status = Column(Enum(FindingStatus), default=FindingStatus.new)
     evidence = Column(JSON, default=dict)
@@ -199,9 +204,13 @@ class Finding(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)
     sla_deadline = Column(DateTime, nullable=True)
+    assigned_to = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    escalated_at = Column(DateTime, nullable=True)  # Module 7 SLA escalation — set on first breach notification
+    escalation_count = Column(Integer, default=0)
 
     client = relationship("Client", back_populates="findings")
     asset = relationship("Asset", back_populates="findings")
+    assignee = relationship("User")
 
 
 class CloudProvider(str, enum.Enum):
@@ -341,6 +350,28 @@ class PentestSchedule(Base):
     report_file_path = Column(String(500), nullable=True)  # uploaded pentest report from the last engagement
     reminder_sent_at = Column(DateTime, nullable=True)  # tracks the 2-week-out reminder so it only fires once
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+class MetricSnapshot(Base):
+    """
+    One row per client per day: open-finding counts by severity + the
+    computed risk score at that point in time. Backing store for every
+    trend chart in the spec (dashboard 3/6/12mo trend, vuln lifecycle
+    trend, report risk-score trend) -- written once daily instead of
+    each surface keeping its own history.
+    """
+    __tablename__ = "metric_snapshots"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    snapshot_date = Column(DateTime, nullable=False, index=True)
+    critical_count = Column(Integer, default=0)
+    high_count = Column(Integer, default=0)
+    medium_count = Column(Integer, default=0)
+    low_count = Column(Integer, default=0)
+    risk_score = Column(Float, default=0.0)
 
     client = relationship("Client")
 

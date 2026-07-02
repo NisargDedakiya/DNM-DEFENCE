@@ -10,7 +10,7 @@ python-dotenv>=1.0.0
 httpx>=0.25.2
 python-jose[cryptography]>=3.3.0
 cryptography>=41.0.7
-bcrypt>=4.0.1
+bcrypt>=4.0.1,<4.1  # passlib 1.7.4's bcrypt backend detection breaks on bcrypt>=4.1's removed __about__ attribute
 passlib[bcrypt]>=1.7.4
 python-multipart>=0.0.6
 anthropic>=0.39.0
@@ -27,6 +27,8 @@ google-api-python-client>=2.118.0
 azure-identity>=1.15.0
 azure-mgmt-storage>=21.1.0
 azure-mgmt-network>=25.3.0
+azure-mgmt-compute>=30.5.0
+azure-mgmt-keyvault>=11.0.0
 
 slowapi>=0.1.9
 pyotp>=2.9.0

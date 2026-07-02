@@ -23,12 +23,17 @@ jobs:
           cache: "pip"
           cache-dependency-path: backend/requirements.txt
 
+      - name: Install weasyprint system libs
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0 libcairo2
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          # Skip GCP/Azure SDKs and system-tool-dependent packages in CI —
-          # they're optional at runtime and not needed to run the test suite.
-          grep -v -E "^(google-|azure-|weasyprint|shodan)" requirements.txt > requirements-ci.txt
+          # Skip GCP/Azure SDKs and shodan (optional at runtime, not needed
+          # for the test suite) — weasyprint is installed since its system
+          # libs are now present and ai_reports.py's PDF export needs real
+          # coverage, not a skip.
+          grep -v -E "^(google-|azure-|shodan)" requirements.txt > requirements-ci.txt
           pip install -r requirements-ci.txt --break-system-packages || pip install -r requirements-ci.txt
 
       - name: Run tests with coverage

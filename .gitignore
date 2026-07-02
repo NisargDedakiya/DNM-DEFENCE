@@ -2,6 +2,8 @@
 /db_data/
 /backend/.venv/
 /backend/.env
+/backend/generated_reports/
+/backend/data/
 
 # Python compilation and testing caches
 __pycache__/

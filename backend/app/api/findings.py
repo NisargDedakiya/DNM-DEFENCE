@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import require_client_access
@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models.models import Client, Finding, FindingStatus
+from app.models.models import Client, Finding, FindingStatus, MetricSnapshot, User
 from app.schemas.schemas import ScanTriggerResponse
 from app.services import ai_reports, notifications
 from app.workers.tasks import run_vuln_scan_for_client, run_dark_web_scan_for_client
@@ -22,16 +22,46 @@ class FindingOut(BaseModel):
     description: str | None
     severity: str
     cvss_score: float | None
+    cvss_vector: str | None
     cve_id: str | None
     status: str
     remediation_steps: str | None
     created_at: datetime
     resolved_at: datetime | None
     sla_deadline: datetime | None
+    assigned_to: str | None
+    escalation_count: int | None
 
 
 class FindingStatusUpdate(BaseModel):
     status: FindingStatus
+
+
+class FindingAssignUpdate(BaseModel):
+    assigned_to: str | None  # None unassigns
+
+
+class TrendPoint(BaseModel):
+    snapshot_date: datetime
+    critical_count: int
+    high_count: int
+    medium_count: int
+    low_count: int
+    risk_score: float
+
+
+# Feature 2.4 — status workflow (New -> Acknowledged -> In Remediation ->
+# Resolved -> Verified). Skipping ahead (e.g. new -> resolved) isn't
+# allowed since the spec's whole point is a traceable lifecycle; disputed
+# is reachable from anywhere since a client can push back at any stage.
+ALLOWED_TRANSITIONS = {
+    FindingStatus.new: {FindingStatus.acknowledged, FindingStatus.disputed},
+    FindingStatus.acknowledged: {FindingStatus.in_remediation, FindingStatus.disputed},
+    FindingStatus.in_remediation: {FindingStatus.resolved, FindingStatus.disputed},
+    FindingStatus.resolved: {FindingStatus.verified, FindingStatus.disputed},
+    FindingStatus.verified: {FindingStatus.disputed},
+    FindingStatus.disputed: {FindingStatus.acknowledged, FindingStatus.new},
+}
 
 
 def _require_client(client_id: str, db: Session) -> Client:
@@ -57,6 +87,19 @@ def list_findings(
     return q.order_by(Finding.cvss_score.desc()).all()
 
 
+@router.get("/trend", response_model=list[TrendPoint])
+def get_findings_trend(client_id: str, months: int = 3, db: Session = Depends(get_db)):
+    """Feature 2.4 — trend dashboard: open finding counts + risk score over time, backed by the daily MetricSnapshot rollup."""
+    _require_client(client_id, db)
+    cutoff = datetime.utcnow().replace(day=1) - timedelta(days=months * 31)
+    return (
+        db.query(MetricSnapshot)
+        .filter(MetricSnapshot.client_id == client_id, MetricSnapshot.snapshot_date >= cutoff)
+        .order_by(MetricSnapshot.snapshot_date.asc())
+        .all()
+    )
+
+
 @router.patch("/{finding_id}", response_model=FindingOut)
 def update_finding_status(client_id: str, finding_id: str, payload: FindingStatusUpdate, db: Session = Depends(get_db)):
     """Feature 6.3 — client updates finding status (ack/in-progress/disputed/resolved)."""
@@ -65,9 +108,32 @@ def update_finding_status(client_id: str, finding_id: str, payload: FindingStatu
     if not finding:
         raise HTTPException(404, "Finding not found")
 
+    if payload.status != finding.status and payload.status not in ALLOWED_TRANSITIONS.get(finding.status, set()):
+        raise HTTPException(400, f"Cannot transition finding from '{finding.status.value}' to '{payload.status.value}' — "
+                                 f"allowed next states: {sorted(s.value for s in ALLOWED_TRANSITIONS.get(finding.status, set()))}")
+
     finding.status = payload.status
     if payload.status == FindingStatus.resolved:
         finding.resolved_at = datetime.utcnow()
+    db.commit()
+    db.refresh(finding)
+    return finding
+
+
+@router.patch("/{finding_id}/assign", response_model=FindingOut)
+def assign_finding(client_id: str, finding_id: str, payload: FindingAssignUpdate, db: Session = Depends(get_db)):
+    """Feature 2.4 — assigns a finding to a staff owner (admin/analyst), or unassigns with assigned_to: null."""
+    _require_client(client_id, db)
+    finding = db.query(Finding).filter_by(id=finding_id, client_id=client_id).first()
+    if not finding:
+        raise HTTPException(404, "Finding not found")
+
+    if payload.assigned_to is not None:
+        owner = db.query(User).get(payload.assigned_to)
+        if not owner:
+            raise HTTPException(404, "User not found")
+
+    finding.assigned_to = payload.assigned_to
     db.commit()
     db.refresh(finding)
     return finding

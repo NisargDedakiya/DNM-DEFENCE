@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 import {
-  getClient, listFindings, listAssets, listScans,
+  getClient, listFindings, listAssets, listScans, getFindingsTrend,
   triggerSubdomainEnum, triggerVulnScan, triggerDarkWebScan,
 } from '../api/client.js'
 import RiskScoreRadial from '../components/RiskScoreRadial.jsx'
@@ -13,11 +15,16 @@ const riskScore = (counts) => Math.min(100, counts.critical * 25 + counts.high *
 export default function Dashboard() {
   const { clientId } = useParams()
   const qc = useQueryClient()
+  const [trendMonths, setTrendMonths] = useState(3)
 
   const { data: client } = useQuery({ queryKey: ['client', clientId], queryFn: () => getClient(clientId) })
   const { data: findings } = useQuery({ queryKey: ['findings', clientId], queryFn: () => listFindings(clientId) })
   const { data: assets } = useQuery({ queryKey: ['assets', clientId], queryFn: () => listAssets(clientId) })
   const { data: scans } = useQuery({ queryKey: ['scans', clientId], queryFn: () => listScans(clientId) })
+  const { data: trend } = useQuery({
+    queryKey: ['findings-trend', clientId, trendMonths],
+    queryFn: () => getFindingsTrend(clientId, trendMonths),
+  })
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['scans', clientId] })
   const runRecon = useMutation({ mutationFn: () => triggerSubdomainEnum(clientId), onSuccess: invalidate })
@@ -28,7 +35,11 @@ export default function Dashboard() {
   const counts = { critical: 0, high: 0, medium: 0, low: 0 }
   open.forEach((f) => { if (counts[f.severity] !== undefined) counts[f.severity]++ })
   const score = riskScore(counts)
-  const recentAlerts = [...(findings || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 6)
+  const recentAlerts = [...(findings || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 10)
+  const trendData = (trend || []).map((p) => ({
+    date: new Date(p.snapshot_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    risk_score: p.risk_score,
+  }))
 
   if (!client) return <p className="text-muted text-sm">Loading…</p>
 
@@ -70,6 +81,39 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="bg-panel border border-border rounded-lg p-6 mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-medium text-muted uppercase tracking-wide font-mono">Risk score trend</h3>
+          <div className="flex gap-1">
+            {[3, 6, 12].map((m) => (
+              <button
+                key={m} onClick={() => setTrendMonths(m)}
+                className={`text-xs px-2 py-1 rounded border font-mono ${
+                  trendMonths === m ? 'border-signal text-signal bg-signal/10' : 'border-border text-muted hover:border-signal/50'
+                }`}
+              >
+                {m}mo
+              </button>
+            ))}
+          </div>
+        </div>
+        {trendData.length < 2 ? (
+          <p className="text-muted text-sm py-8 text-center">
+            Not enough history yet to show a trend — check back after a few days of scanning.
+          </p>
+        ) : (
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={trendData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3d" />
+              <XAxis dataKey="date" stroke="#888" fontSize={11} />
+              <YAxis domain={[0, 100]} stroke="#888" fontSize={11} />
+              <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #2a2a3d', fontSize: 12 }} />
+              <Line type="monotone" dataKey="risk_score" stroke="#f5a623" strokeWidth={2} dot={{ r: 3 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       <div className="grid grid-cols-3 gap-6">
