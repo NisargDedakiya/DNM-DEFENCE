@@ -552,9 +552,13 @@ def check_scan_health():
 def check_sla_escalations():
     """
     SLA enforcement (Module 7 / Feature 2.4): findings whose sla_deadline
-    has passed while still open get flagged for escalation. Actual paging/
-    Slack alerting isn't wired yet — this task is the detection half; hook
-    a notification send where marked below once delivery exists.
+    has passed while still open get escalated. Escalation is real state,
+    not just a repeated log line -- escalation_count/escalated_at track
+    it on the Finding itself (surfaced as an "ESCALATED" badge in the
+    portal), and a fresh critical-alert draft gets queued so the human
+    review queue actually reflects the ongoing breach. Capped to once per
+    24h per finding so the hourly beat schedule doesn't spam duplicate
+    escalations for the same still-overdue finding.
     """
     db = SessionLocal()
     try:
@@ -564,16 +568,27 @@ def check_sla_escalations():
             Finding.status.notin_([FindingStatus.resolved, FindingStatus.verified]),
         ).all()
 
+        escalated = 0
         for f in overdue:
+            if f.escalated_at and (now - f.escalated_at) < timedelta(hours=24):
+                continue  # already escalated recently, don't re-escalate every hourly tick
+
+            f.escalation_count = (f.escalation_count or 0) + 1
+            f.escalated_at = now
+            escalated += 1
+
             logger.warning(
-                f"SLA BREACH: finding {f.id} ('{f.title}', {f.severity.value}) for client {f.client_id} "
-                f"was due {f.sla_deadline}, still status={f.status.value}"
+                f"SLA BREACH (escalation #{f.escalation_count}): finding {f.id} ('{f.title}', {f.severity.value}) "
+                f"for client {f.client_id} was due {f.sla_deadline}, still status={f.status.value}"
             )
             client = db.query(Client).get(f.client_id)
             if client:
                 notifications.notify_sla_breach(client, f.title, f.severity.value, f.sla_deadline)
+            if f.severity in (Severity.critical, Severity.high):
+                draft_alert_for_finding.delay(f.id)
 
-        return {"overdue_findings": len(overdue)}
+        db.commit()
+        return {"overdue_findings": len(overdue), "newly_escalated": escalated}
     finally:
         db.close()
 

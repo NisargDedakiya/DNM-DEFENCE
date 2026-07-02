@@ -89,6 +89,11 @@ export default function Findings() {
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <SeverityBadge severity={f.severity} />
+                  {f.escalation_count > 0 && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-critical/20 text-critical shrink-0">
+                      ESCALATED{f.escalation_count > 1 ? ` ×${f.escalation_count}` : ''}
+                    </span>
+                  )}
                   <span className="truncate text-sm">{f.title}</span>
                 </div>
                 <div className="flex items-center gap-3 shrink-0 pl-3">
