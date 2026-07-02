@@ -639,49 +639,121 @@ curl -X POST http://localhost:8000/api/clients/{client_id}/pentest-schedule/comp
 # next_due_date auto-advances to 2027-01-01 for a quarterly schedule
 ```
 
-## Roadmap — status: complete
+## What's new — Closing the Spec-Gap Audit
 
-Every module and every feature from the original Track 1 spec now has a
-real, working implementation:
+An audit against the original product spec document found the previous
+"Roadmap — status: complete" claim below was overstated: several
+Feature-2.x/3.x items existed only as log lines, dead code that was never
+called, or stubs, and three real bugs meant the app didn't reliably start
+at all (`bcrypt`>=4.1 broke every password hash/verify call via an
+incompatible `passlib`, `weasyprint` was hard-imported at module load and
+broke the app in any environment without its system libs including CI, and
+a scheduled Celery task referenced a function that didn't exist). All of
+that is now fixed and every real gap the audit found is closed, verified
+with real tests and — for the frontend — a live browser click-through, not
+just written and assumed to work:
 
-1. ✅ Module 1 — Asset Discovery (subdomains, ports, cloud assets)
-2. ✅ Module 2 — Vulnerability Detection (nuclei, CVSS, dedup, re-scan verification)
-3. ✅ Module 3 — Dark web/threat intel (HIBP, GitHub secrets, OTX blocklist)
+- **Bug fixes**: `bcrypt` pinned below the version that breaks `passlib`;
+  `weasyprint` lazy-imported so the app starts without it installed; the
+  missing DNS/SSL monitoring beat task restored (it was dead code stranded
+  inside an unrelated function); a missing `timedelta` import that would
+  have crashed several scheduled tasks at runtime.
+- **Module 1**: active subdomain brute-force, HTTP security header
+  analysis, CVE matching against fingerprinted tech (free CIRCL API),
+  GCP/Azure cloud asset discovery, the previously-dead SSLyze scan wired
+  into the schedule, and new-subdomain/new-port/dangerous-service alerts
+  converted from log lines into real Findings.
+- **Module 2**: CVSS vector strings, real business-context severity
+  scoring (`Asset.is_internal`), default-credential checks via nuclei's
+  own `default-logins` templates, JWT weakness detection, OAuth2/OIDC
+  misconfiguration checks, SPF/DKIM/DMARC validation, finding
+  assignment + enforced status-workflow transitions, and a trend
+  dashboard endpoint.
+- **Module 3**: best-effort free-source paste-site monitoring (psbdmp.ws),
+  optional DeHashed integration, and the free Emerging Threats
+  compromised-IP blocklist.
+- **Module 4**: GCP project-level IAM over-privilege detection, Azure Key
+  Vault access-policy review, Azure AD security-defaults check, and a
+  unified multi-cloud findings view in the portal.
+- **Module 5**: client branding on generated reports, a real
+  per-control compliance section (was a hardcoded placeholder even when
+  real compliance data existed), a risk-score trend chart embedded in
+  both PDF and DOCX, and the weekly digest grounded in this week's actual
+  CVE/threat-intel hits instead of asking Claude to recall "current"
+  threats from training data.
+- **Module 6**: a real dashboard trend chart (Recharts — installed since
+  early on but never actually used until now), asset tech-stack/port/risk
+  detail, real per-asset risk scoring (the column existed but nothing
+  ever wrote to it), compliance evidence upload/download and a real
+  per-control PDF export, pentest report upload/download, and phishing
+  result anonymization that's actually enforced server-side (was a
+  code-comment convention with nothing behind it) plus a training-
+  completion rollup. Also fixed a pre-existing bug found while wiring
+  this up: authenticated file downloads used plain `<a href>` tags, but
+  this app has no cookie session — the JWT lives in `localStorage` and is
+  attached via an axios interceptor, so a bare anchor tag never sent the
+  token and every download would 401 for a real logged-in user.
+- **Module 7**: SLA escalation now writes real state
+  (`escalation_count`/`escalated_at`, surfaced as a portal badge) and
+  re-drafts a critical alert on each new breach, instead of just logging
+  the same warning every hour forever. Fair per-client scan scheduling
+  wired up via `MAX_CONCURRENT_SCANS_PER_CLIENT` (declared in config
+  since early on, never actually read until now) backed by a Redis
+  counter.
+
+**Genuinely still outside pure code**: Tor-indexed dark-web content and
+ransomware-group blog monitoring need a paid feed (Flare, DarkOwl) or
+Tor-capable crawling infrastructure — there's a documented extension
+point at the bottom of `threat_intel.py` for whenever you pick one.
+
+**Verified, not just written**: 116/116 backend tests pass (up from the
+24 that existed before this pass), every new Alembic migration applies
+and downgrades cleanly against a fresh database, and a full visual
+verification pass — seeded realistic data, logged into the actual portal
+through a real browser, clicked through every changed page and the new
+upload/status-transition/expand interactions — confirmed everything
+renders and behaves correctly with zero console errors.
+
+## Roadmap
+
+Every module and feature from the Track 1 spec has a real implementation.
+The one exception is genuinely outside pure code (see above):
+
+1. ✅ Module 1 — Asset Discovery (subdomains incl. active brute-force,
+   ports, cloud assets across AWS/GCP/Azure, tech fingerprinting, CVE
+   matching, security headers)
+2. ✅ Module 2 — Vulnerability Detection (nuclei, CVSS + vector, dedup,
+   re-scan verification, JWT/OAuth/email-security checks, lifecycle
+   workflow, trend dashboard)
+3. 🟡 Module 3 — Dark web/threat intel (HIBP, DeHashed, GitHub secrets,
+   paste-site search, OTX/Abuse.ch/Emerging Threats blocklists — Tor/
+   ransomware-blog monitoring needs a paid feed, see above)
 4. ✅ Module 4 — CSPM (AWS, GCP, Azure auditing + config drift detection)
-5. ✅ Module 5 — AI Report Generation (monthly reports, alert drafting, digests)
-6. ✅ Module 6 — Client Portal (overview, assets, findings, compliance,
-   phishing, reports, pentest scheduling)
-7. ✅ Module 7 — Scheduling automation, health monitoring, SLA escalation,
-   pentest reminders, email/Slack delivery
-
-**One thing remains genuinely outside pure code**, and always will be
-unless you buy a feed for it: paste-site/dark-web crawling and ransomware
-blog monitoring need a paid subscription (Flare, DarkOwl) or Tor-capable
-infrastructure. There's a documented extension point at the bottom of
-`threat_intel.py` for whenever you pick one — HIBP, GitHub secrets, and
-OTX blocklist correlation (the rest of Module 3) are fully built and
-running today.
-
-Everything else — asset discovery, vuln scanning, dark web/threat intel,
-AWS/GCP/Azure CSPM with drift detection, AI report generation, email/Slack
-delivery, the full client portal (overview, assets, findings, compliance,
-phishing, reports) — is built and wired end to end.
-5. Module 4 — CSPM: AWS/GCP/Azure config auditing
-6. Module 5 — AI report generation: Claude API + Jinja2 + WeasyPrint
-7. Module 6 — Client portal frontend (React + Vite + Tailwind + shadcn/ui)
-8. Module 7 — remaining scheduling/SLA logic, health monitoring
+5. ✅ Module 5 — AI Report Generation (monthly reports w/ branding + trend
+   chart, alert drafting, data-grounded weekly digests)
+6. ✅ Module 6 — Client Portal (overview + trend, assets, findings,
+   compliance w/ evidence + export, phishing w/ anonymization, reports,
+   pentest scheduling)
+7. ✅ Module 7 — Scheduling automation, health monitoring, real SLA
+   escalation, fair per-client scheduling, pentest reminders, email/Slack
+   delivery
 
 Each module maps directly to a file in `app/services/` and a set of Celery
 tasks in `app/workers/tasks.py` — follow the pattern already set by
-`services/recon.py` and the two working tasks.
+`services/recon.py`, `services/threat_intel.py`, and `services/cspm.py`.
 
 ## Notes
 
-- `subfinder`/`httpx`/`naabu` are installed in the Docker image already.
-  Locally without Docker, install them via `go install` (see Dockerfile)
-  or the recon functions will just log a warning and return empty results.
-- Migrations: `Base.metadata.create_all` runs automatically in dev mode.
-  Switch to Alembic before this touches a real client's data.
-- Cloud credentials (`CloudAccount.encrypted_credentials`) must be
-  Fernet-encrypted before storage — encryption helper not yet added, do
-  not store plaintext keys even in dev.
+- `subfinder`/`httpx`/`naabu`/`nuclei`/`amass`/`nmap` are installed in the
+  Docker image already. Locally without Docker, install them via
+  `go install` (see Dockerfile) or the recon functions will just log a
+  warning and return empty results.
+- Migrations are managed by Alembic (`alembic upgrade head`) — the
+  `docker-compose` `api` service runs this automatically on every start.
+  After changing a model, run `alembic revision --autogenerate -m "..."`
+  and review the generated file before committing it (autogenerate
+  against sqlite produces spurious NUMERIC→UUID noise that's safe to
+  drop — see the comment in `8d2b7ca2c7e3_add_risk_analysis.py` for why).
+- Cloud credentials (`CloudAccount.encrypted_credentials`) are
+  Fernet-encrypted before storage (`app/core/crypto.py`) — never store
+  plaintext keys even in dev.
