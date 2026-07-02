@@ -21,7 +21,6 @@ from docx import Document
 from docx.shared import Pt, RGBColor
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.orm import Session
-from weasyprint import HTML
 
 from app.core.config import settings
 from app.models.models import Client, Finding, Severity, FindingStatus, Report, ReportType
@@ -197,6 +196,9 @@ def render_report_html(client: Client, data: dict, executive_summary: str, perio
 
 
 def export_pdf(html_content: str, output_path: str) -> str:
+    # Lazy import: weasyprint needs system libs (pango/cairo) not present in
+    # every environment (e.g. CI), and nothing else in this module needs it.
+    from weasyprint import HTML
     HTML(string=html_content).write_pdf(output_path)
     return output_path
 

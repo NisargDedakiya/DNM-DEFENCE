@@ -613,6 +613,11 @@ def check_cloud_credential_rotation():
         return {"stale_credential_accounts": len(stale)}
     finally:
         db.close()
+
+
+@celery_app.task
+def check_dns_and_ssl_all_clients():
+    """Scheduled fan-out — queues DNS/SSL monitoring for every active client (Module 7 scheduler)."""
     db = SessionLocal()
     try:
         client_ids = [c.id for c in db.query(Client).filter_by(is_active=True)]

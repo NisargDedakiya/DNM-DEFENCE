@@ -10,7 +10,7 @@ python-dotenv>=1.0.0
 httpx>=0.25.2
 python-jose[cryptography]>=3.3.0
 cryptography>=41.0.7
-bcrypt>=4.0.1
+bcrypt>=4.0.1,<4.1  # passlib 1.7.4's bcrypt backend detection breaks on bcrypt>=4.1's removed __about__ attribute
 passlib[bcrypt]>=1.7.4
 python-multipart>=0.0.6
 anthropic>=0.39.0
