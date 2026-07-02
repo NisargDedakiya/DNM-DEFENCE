@@ -14,10 +14,16 @@ const ALLOWED_TRANSITIONS = {
   disputed: ['acknowledged', 'new'],
 }
 
+// Cloud findings are titled "[AWS] ...", "[GCP] ...", "[AZURE] ..." by cspm.py's
+// sync_cloud_findings_to_db -- client-side grouping on that prefix gives a
+// unified multi-cloud view without a separate backend endpoint.
+const CLOUD_PROVIDER_PREFIX = /^\[(AWS|GCP|AZURE)\]/
+
 export default function Findings() {
   const { clientId } = useParams()
   const qc = useQueryClient()
   const [severityFilter, setSeverityFilter] = useState('')
+  const [providerFilter, setProviderFilter] = useState('')
   const [expanded, setExpanded] = useState(null)
 
   const { data: findings, isLoading } = useQuery({
@@ -30,6 +36,12 @@ export default function Findings() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['findings', clientId] }),
   })
 
+  const visibleFindings = (findings || []).filter((f) => {
+    if (!providerFilter) return true
+    const match = f.title.match(CLOUD_PROVIDER_PREFIX)
+    return providerFilter === 'other' ? !match : match?.[1] === providerFilter
+  })
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -37,27 +49,39 @@ export default function Findings() {
           <h2 className="text-2xl font-semibold mb-1">Vulnerability Tracker</h2>
           <p className="text-muted text-sm">All open and resolved findings across every scan type.</p>
         </div>
-        <select
-          value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}
-          className="bg-panel2 border border-border rounded px-3 py-2 text-sm outline-none focus:border-signal"
-        >
-          <option value="">All severities</option>
-          <option value="critical">Critical</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-        </select>
+        <div className="flex gap-2">
+          <select
+            value={providerFilter} onChange={(e) => setProviderFilter(e.target.value)}
+            className="bg-panel2 border border-border rounded px-3 py-2 text-sm outline-none focus:border-signal"
+          >
+            <option value="">All sources</option>
+            <option value="AWS">AWS (CSPM)</option>
+            <option value="GCP">GCP (CSPM)</option>
+            <option value="AZURE">Azure (CSPM)</option>
+            <option value="other">Non-cloud</option>
+          </select>
+          <select
+            value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}
+            className="bg-panel2 border border-border rounded px-3 py-2 text-sm outline-none focus:border-signal"
+          >
+            <option value="">All severities</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
       </div>
 
       {isLoading ? (
         <p className="text-muted text-sm">Loading…</p>
-      ) : findings?.length === 0 ? (
+      ) : visibleFindings.length === 0 ? (
         <div className="border border-dashed border-border rounded-lg p-10 text-center text-muted">
           No findings match this filter. Run a vulnerability, dark web, or cloud scan from the Overview tab.
         </div>
       ) : (
         <div className="space-y-2">
-          {findings?.map((f) => (
+          {visibleFindings.map((f) => (
             <div key={f.id} className="bg-panel border border-border rounded-lg overflow-hidden">
               <button
                 onClick={() => setExpanded(expanded === f.id ? null : f.id)}
