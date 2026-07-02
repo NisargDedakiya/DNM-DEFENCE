@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     CENSYS_API_ID: str = ""
     CENSYS_API_SECRET: str = ""
     HIBP_API_KEY: str = ""
+    DEHASHED_API_KEY: str = ""
     GITHUB_TOKEN: str = ""
     VIRUSTOTAL_API_KEY: str = ""
 

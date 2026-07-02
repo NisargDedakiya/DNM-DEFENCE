@@ -4,7 +4,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listFindings, updateFindingStatus } from '../api/client.js'
 import SeverityBadge from '../components/SeverityBadge.jsx'
 
-const STATUS_OPTIONS = ['new', 'acknowledged', 'in_remediation', 'resolved', 'verified', 'disputed']
+// Mirrors backend ALLOWED_TRANSITIONS in app/api/findings.py -- keep in sync.
+const ALLOWED_TRANSITIONS = {
+  new: ['acknowledged', 'disputed'],
+  acknowledged: ['in_remediation', 'disputed'],
+  in_remediation: ['resolved', 'disputed'],
+  resolved: ['verified', 'disputed'],
+  verified: ['disputed'],
+  disputed: ['acknowledged', 'new'],
+}
 
 export default function Findings() {
   const { clientId } = useParams()
@@ -76,20 +84,23 @@ export default function Findings() {
                   )}
                   <div className="flex items-center gap-2 mt-3">
                     <span className="text-[10px] text-muted uppercase font-mono">Set status:</span>
-                    {STATUS_OPTIONS.map((s) => (
+                    <span className={`text-xs px-2 py-1 rounded border font-mono border-signal text-signal bg-signal/10`}>
+                      {f.status.replace('_', ' ')}
+                    </span>
+                    {(ALLOWED_TRANSITIONS[f.status] || []).map((s) => (
                       <button
                         key={s}
                         onClick={() => updateStatus.mutate({ findingId: f.id, status: s })}
-                        disabled={f.status === s}
-                        className={`text-xs px-2 py-1 rounded border font-mono ${
-                          f.status === s
-                            ? 'border-signal text-signal bg-signal/10'
-                            : 'border-border text-muted hover:border-signal/50 hover:text-ink'
-                        }`}
+                        className="text-xs px-2 py-1 rounded border font-mono border-border text-muted hover:border-signal/50 hover:text-ink"
                       >
-                        {s.replace('_', ' ')}
+                        &rarr; {s.replace('_', ' ')}
                       </button>
                     ))}
+                    {updateStatus.isError && (
+                      <span className="text-xs text-red-400 font-mono">
+                        {updateStatus.error?.response?.data?.detail || 'Update failed'}
+                      </span>
+                    )}
                   </div>
                 </div>
               )}

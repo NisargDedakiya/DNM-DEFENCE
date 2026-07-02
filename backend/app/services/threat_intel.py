@@ -1,15 +1,20 @@
 """
 Module 3 — Dark Web & Threat Intelligence Monitoring.
 
-Feature 3.1: credential leak detection via Have I Been Pwned (HIBP).
+Feature 3.1: credential leak detection via Have I Been Pwned (HIBP) and,
+             optionally, DeHashed.
 Feature 3.2: GitHub secret scanning for accidentally-committed client
-             API keys / tokens / domain references.
-Feature 3.3: threat intel blocklist correlation (AlienVault OTX, Abuse.ch).
+             API keys / tokens / domain references, plus best-effort
+             paste-site monitoring (indexed Pastebin content via
+             psbdmp.ws, free/no-key).
+Feature 3.3: threat intel blocklist correlation (AlienVault OTX,
+             Abuse.ch, Emerging Threats).
 
-Dark web / paste-site crawling (Ghostbin, Tor-indexed content, ransomware
-blog monitoring) requires a paid feed or Tor-capable infrastructure not
-assumed here — that piece is stubbed with a clear extension point at the
-bottom of this file rather than faked.
+Tor-indexed dark-web content and ransomware-group blog monitoring still
+require a paid feed (Flare, DarkOwl) or Tor-capable crawling
+infrastructure that can't be built from free APIs — that piece is
+stubbed with a clear extension point at the bottom of this file rather
+than faked.
 """
 import hashlib
 import logging
@@ -208,6 +213,98 @@ def check_abusech(ip_addresses: list[str], timeout: int = 15) -> list[dict]:
     return results
 
 
+def check_paste_sites(domain: str, timeout: int = 15) -> list[dict]:
+    """
+    Feature 3.2 — paste-site monitoring, best-effort free-source version.
+    Uses psbdmp.ws, a free paste-search index covering Pastebin (no key
+    required). This is deliberately the free-tier substitute for the
+    genuinely-paid/Tor-infra pieces of Module 3.2 (see the extension
+    point at the bottom of this file) — it only covers indexed Pastebin
+    content, not Ghostbin, ransomware blogs, or Tor-hidden services.
+    """
+    try:
+        resp = httpx.get(f"https://psbdmp.ws/api/v3/search/{domain}", timeout=timeout)
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+    except (httpx.RequestError, ValueError) as e:
+        logger.info(f"Paste-site search skipped for {domain}: {e}")
+        return []
+
+    hits = []
+    for entry in (data.get("data") or [])[:20]:
+        paste_id = entry.get("id")
+        if not paste_id:
+            continue
+        hits.append({
+            "paste_id": paste_id, "date": entry.get("time"),
+            "url": f"https://pastebin.com/{paste_id}",
+            "note": f"Client domain '{domain}' appears in an indexed Pastebin paste — review for leaked credentials, source code, or internal data.",
+        })
+    return hits
+
+
+def check_dehashed(domain: str, timeout: int = 15) -> list[dict]:
+    """
+    Feature 3.1 — DeHashed breach/credential search, complementing HIBP
+    with a different (paid, key-gated) data source. Degrades gracefully
+    like every other optional integration when DEHASHED_API_KEY isn't set.
+    """
+    if not settings.DEHASHED_API_KEY:
+        logger.info("DEHASHED_API_KEY not set — skipping DeHashed search")
+        return []
+    try:
+        resp = httpx.get(
+            "https://api.dehashed.com/search", params={"query": f"domain:{domain}"},
+            auth=(settings.DEHASHED_API_KEY, "api_key"), timeout=timeout,
+            headers={"Accept": "application/json"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as e:
+        logger.error(f"DeHashed search failed for {domain}: {e}")
+        return []
+
+    hits = []
+    for entry in (data.get("entries") or [])[:50]:
+        hits.append({
+            "email": entry.get("email"), "database_name": entry.get("database_name"),
+            "id": entry.get("id"),
+            "note": f"Credential exposure found via DeHashed in database '{entry.get('database_name', 'unknown')}'.",
+        })
+    return hits
+
+
+_ET_COMPROMISED_IPS_URL = "https://rules.emergingthreats.net/blockrules/compromised-ips.txt"
+
+
+def check_emerging_threats(ip_addresses: list[str], timeout: int = 20) -> list[dict]:
+    """
+    Feature 3.3 — Emerging Threats (Proofpoint ET Open) compromised-ips
+    blocklist. Free, no key required: fetches the plaintext IP list once
+    per call and checks membership. Complements OTX/Abuse.ch since none
+    of the three feeds fully overlap.
+    """
+    if not ip_addresses:
+        return []
+    try:
+        resp = httpx.get(_ET_COMPROMISED_IPS_URL, timeout=timeout)
+        resp.raise_for_status()
+    except httpx.RequestError as e:
+        logger.error(f"Emerging Threats blocklist fetch failed: {e}")
+        return []
+
+    blocked = {line.strip() for line in resp.text.splitlines() if line.strip() and not line.startswith("#")}
+    hits = []
+    for ip in ip_addresses:
+        if ip in blocked:
+            hits.append({
+                "ip": ip,
+                "note": "IP appears on the Emerging Threats compromised-ips blocklist — a stronger signal than a generic reputation hit.",
+            })
+    return hits
+
+
 def _dedup_hash(client_id: str, kind: str, identifier: str) -> str:
     return hashlib.sha256(f"{client_id}:{kind}:{identifier}".encode()).hexdigest()
 
@@ -215,7 +312,8 @@ def _dedup_hash(client_id: str, kind: str, identifier: str) -> str:
 def sync_intel_findings_to_db(db: Session, client: Client, breaches: list[dict],
                                github_hits: list[dict], blocklist_hits: list[dict],
                                shodan_hits: list[dict] | None = None, censys_hits: list[dict] | None = None,
-                               abusech_hits: list[dict] | None = None) -> int:
+                               abusech_hits: list[dict] | None = None, paste_hits: list[dict] | None = None,
+                               dehashed_hits: list[dict] | None = None, et_hits: list[dict] | None = None) -> int:
     """Converts raw intel hits into Finding rows, deduped per-source."""
     now = datetime.utcnow()
     new_count = 0
@@ -303,13 +401,53 @@ def sync_intel_findings_to_db(db: Session, client: Client, breaches: list[dict],
         ))
         new_count += 1
 
+    for p in (paste_hits or []):
+        dedup = _dedup_hash(client.id, "paste", p["paste_id"])
+        if db.query(Finding).filter_by(dedup_hash=dedup).first():
+            continue
+        db.add(Finding(
+            client_id=client.id, title=f"Domain mention in indexed paste — {p['paste_id']}",
+            description=p["note"], severity=Severity.medium, cvss_score=5.0, status=FindingStatus.new,
+            evidence=p, remediation_steps="Review the paste content; if it contains real credentials or internal data, rotate/revoke and consider a takedown request.",
+            dedup_hash=dedup, created_at=now, sla_deadline=now + timedelta(hours=168),
+        ))
+        new_count += 1
+
+    for d in (dehashed_hits or []):
+        identifier = d.get("id") or d.get("email") or str(d)
+        dedup = _dedup_hash(client.id, "dehashed", identifier)
+        if db.query(Finding).filter_by(dedup_hash=dedup).first():
+            continue
+        db.add(Finding(
+            client_id=client.id, title=f"Credential exposure (DeHashed) — {d.get('database_name', 'unknown source')}",
+            description=d["note"], severity=Severity.high, cvss_score=7.0, status=FindingStatus.new,
+            evidence=d, remediation_steps="Force password resets for affected accounts and enable MFA where not already required.",
+            dedup_hash=dedup, created_at=now, sla_deadline=now + timedelta(hours=client.sla_hours_high),
+        ))
+        new_count += 1
+
+    for e in (et_hits or []):
+        dedup = _dedup_hash(client.id, "emerging_threats", e["ip"])
+        if db.query(Finding).filter_by(dedup_hash=dedup).first():
+            continue
+        db.add(Finding(
+            client_id=client.id, title=f"IP flagged on Emerging Threats compromised-ips list — {e['ip']}",
+            description=e["note"], severity=Severity.critical, cvss_score=9.0, status=FindingStatus.new,
+            evidence=e, remediation_steps="Treat as a likely compromise indicator — investigate this host immediately.",
+            dedup_hash=dedup, created_at=now, sla_deadline=now + timedelta(hours=client.sla_hours_critical),
+        ))
+        new_count += 1
+
     db.commit()
     return new_count
 
 
 # --- Extension point ---
-# Paste-site / dark-web / ransomware-blog monitoring (Feature 3.2, 3.3 broader
-# scope) needs either a paid feed (e.g. Flare, DarkOwl) or Tor-capable infra.
-# Wire a new `check_dark_web_mentions(domain) -> list[dict]` function here
-# following the same shape as the checks above once a feed is chosen, then
-# add it to sync_intel_findings_to_db.
+# check_paste_sites() above covers indexed Pastebin content (free,
+# no key) as a best-effort substitute for the genuinely-paid pieces of
+# Feature 3.2. Tor-indexed dark-web content and ransomware-group blog
+# monitoring still need a paid feed (e.g. Flare, DarkOwl) or Tor-capable
+# crawling infrastructure that can't be conjured from free APIs — wire a
+# `check_dark_web_mentions(domain) -> list[dict]` function here following
+# the same shape as the checks above once a feed is chosen, then add it
+# to sync_intel_findings_to_db.

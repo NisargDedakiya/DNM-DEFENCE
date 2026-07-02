@@ -279,6 +279,8 @@ def run_dark_web_scan_for_client(self, client_id: str):
 
         breaches = threat_intel.check_hibp_breaches(client.root_domain)
         github_hits = threat_intel.check_github_secret_leaks(client.root_domain)
+        paste_hits = threat_intel.check_paste_sites(client.root_domain)
+        dehashed_hits = threat_intel.check_dehashed(client.root_domain)
 
         ip_assets = [a.value for a in db.query(Asset).filter_by(client_id=client_id, asset_type=AssetType.ip)]
         # Also resolve A records for live subdomains -- IOC/exposure feeds
@@ -296,9 +298,11 @@ def run_dark_web_scan_for_client(self, client_id: str):
         shodan_hits = threat_intel.check_shodan(resolved_ips)
         censys_hits = threat_intel.check_censys(resolved_ips)
         abusech_hits = threat_intel.check_abusech(resolved_ips)
+        et_hits = threat_intel.check_emerging_threats(resolved_ips)
 
         new_count = threat_intel.sync_intel_findings_to_db(
-            db, client, breaches, github_hits, blocklist_hits, shodan_hits, censys_hits, abusech_hits
+            db, client, breaches, github_hits, blocklist_hits, shodan_hits, censys_hits, abusech_hits,
+            paste_hits, dehashed_hits, et_hits,
         )
         _draft_alerts_for_recent_critical_findings(db, client_id, scan.started_at)
 
