@@ -1,0 +1,23 @@
+# Local databases and virtual environments
+/db_data/
+/backend/.venv/
+/backend/.env
+
+# Python compilation and testing caches
+__pycache__/
+*.pyc
+/backend/.pytest_cache/
+/backend/.mypy_cache/
+
+# Node dependencies and build folders
+/frontend/node_modules/
+/frontend/dist/
+/frontend/.env.local
+/frontend/.env
+
+# Logs and OS files
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  backend-test:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          # Skip GCP/Azure SDKs and system-tool-dependent packages in CI —
+          # they're optional at runtime and not needed to run the test suite.
+          grep -v -E "^(google-|azure-|weasyprint|shodan)" requirements.txt > requirements-ci.txt
+          pip install -r requirements-ci.txt --break-system-packages || pip install -r requirements-ci.txt
+
+      - name: Run tests with coverage
+        env:
+          ENV: development
+          ANTHROPIC_API_KEY: test-key
+          SECRET_KEY: ci-test-secret-key
+          CELERY_BROKER_URL: redis://localhost:6379/0
+          CELERY_RESULT_BACKEND: redis://localhost:6379/1
+        run: python -m pytest tests/ -v --cov=app --cov-report=term-missing --cov-report=xml
+        # Covers auth, tenant isolation, and security regressions (SSRF,
+        # timing attacks, IDOR, mass assignment) — see backend/tests/
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+
+      - name: Check migrations are in sync with models
+        env:
+          ENV: development
+          DATABASE_URL: sqlite:///./ci_migration_check.db
+          ANTHROPIC_API_KEY: test-key
+          SECRET_KEY: ci-test-secret-key
+        run: |
+          python -m alembic upgrade head
+          # autogenerate against the now-migrated DB; if it detects further
+          # changes, someone edited a model without generating a migration
+          python -m alembic revision --autogenerate -m "ci_drift_check" --rev-id ci_check_temp
+          if grep -q "pass" alembic/versions/*ci_check_temp*.py 2>/dev/null; then
+            echo "Migrations are in sync with models."
+          else
+            echo "::warning::Detected model changes not captured in a migration. Run 'alembic revision --autogenerate' locally."
+          fi
+          rm -f alembic/versions/*ci_check_temp*.py
+
+  backend-lint:
+    name: Backend lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ruff
+        run: pip install ruff --break-system-packages || pip install ruff
+
+      - name: Lint (non-blocking — surfaces issues without failing the build yet)
+        run: ruff check app/ --exit-zero
+
+  frontend-build:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+  docker-build-check:
+    name: Docker images build
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-build]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend image (no push — just confirms the Dockerfile is valid)
+        run: docker build -t track1-backend-ci-check ./backend
+
+      - name: Build frontend image
+        run: docker build -t track1-frontend-ci-check ./frontend

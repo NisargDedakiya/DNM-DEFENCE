@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+    @page { size: A4; margin: 2.2cm 1.8cm; }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #1a1a2e; font-size: 10.5pt; line-height: 1.5; }
+    h1 { font-size: 22pt; margin-bottom: 2pt; }
+    h2 { font-size: 14pt; margin-top: 24pt; border-bottom: 2px solid #16213e; padding-bottom: 4pt; }
+    .subtitle { color: #555; font-size: 11pt; margin-bottom: 20pt; }
+    .risk-score-box { display: inline-block; padding: 14pt 24pt; border-radius: 8pt; color: white; font-size: 28pt; font-weight: bold; }
+    .risk-critical { background: #b91c1c; } .risk-high { background: #ea580c; }
+    .risk-medium { background: #ca8a04; } .risk-good { background: #15803d; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8pt; }
+    th { background: #16213e; color: white; text-align: left; padding: 6pt 8pt; font-size: 9.5pt; }
+    td { padding: 6pt 8pt; border-bottom: 1px solid #ddd; font-size: 9.5pt; vertical-align: top; }
+    .sev-critical { color: #b91c1c; font-weight: bold; } .sev-high { color: #ea580c; font-weight: bold; }
+    .sev-medium { color: #ca8a04; } .sev-low { color: #555; }
+    .summary-grid { display: flex; gap: 12pt; margin: 12pt 0; }
+    .summary-cell { flex: 1; text-align: center; padding: 10pt; background: #f4f4f8; border-radius: 6pt; }
+    .summary-cell .num { font-size: 20pt; font-weight: bold; display: block; }
+    footer { margin-top: 30pt; font-size: 8pt; color: #888; border-top: 1px solid #ddd; padding-top: 8pt; }
+</style>
+</head>
+<body>
+    <h1>{{ client_name }}</h1>
+    <div class="subtitle">Monthly Security Report &middot; {{ period_label }} &middot; Confidential</div>
+
+    <div class="risk-score-box risk-{{ risk_band }}">{{ risk_score }}/100</div>
+
+    <h2>Executive Summary</h2>
+    <p>{{ executive_summary }}</p>
+
+    {% if risk_analysis %}
+    <h2>Technical Risk Analysis</h2>
+    <p>{{ risk_analysis }}</p>
+    {% endif %}
+
+    <h2>This Month at a Glance</h2>
+    <div class="summary-grid">
+        <div class="summary-cell"><span class="num sev-critical">{{ counts.critical }}</span>Critical</div>
+        <div class="summary-cell"><span class="num sev-high">{{ counts.high }}</span>High</div>
+        <div class="summary-cell"><span class="num sev-medium">{{ counts.medium }}</span>Medium</div>
+        <div class="summary-cell"><span class="num sev-low">{{ counts.low }}</span>Low</div>
+    </div>
+
+    <h2>Technical Findings</h2>
+    <table>
+        <tr><th>Severity</th><th>Finding</th><th>CVSS</th><th>Status</th><th>Discovered</th></tr>
+        {% for f in findings %}
+        <tr>
+            <td class="sev-{{ f.severity }}">{{ f.severity|upper }}</td>
+            <td>{{ f.title }}</td>
+            <td>{{ f.cvss_score }}</td>
+            <td>{{ f.status }}</td>
+            <td>{{ f.created_at }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <h2>Compliance Status</h2>
+    <p>{{ compliance_summary }}</p>
+
+    <footer>
+        Generated automatically by the Track 1 Security Platform on {{ generated_at }}.
+        This report is confidential and intended solely for {{ client_name }}.
+    </footer>
+</body>
+</html>
