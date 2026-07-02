@@ -4,15 +4,17 @@ across async task boundaries) and always records a ScanRun row so the
 platform health monitor (Module 7) can detect stuck/failed jobs.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
+from app.core.concurrency import try_acquire_scan_slot, release_scan_slot
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.models import (
     Client, Asset, AssetType, ScanRun, ScanStatus, ScanType, CloudAccount,
-    Finding, FindingStatus, Severity,
+    Finding, FindingStatus, Severity, MetricSnapshot,
 )
 from app.services import recon, vuln_scan, threat_intel, cspm, ai_reports, notifications, pentest_scheduling, dns_ssl_monitor
+from app.services.risk_score import compute_risk_score
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,9 @@ def _draft_alerts_for_recent_critical_findings(db, client_id: str, since):
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=300)
 def run_subdomain_enum_for_client(self, client_id: str):
     """Feature 1.1 — Automated Subdomain Enumeration for a single client."""
+    if not try_acquire_scan_slot(client_id):
+        logger.info(f"Client {client_id} at max concurrent scans — retrying shortly.")
+        raise self.retry(countdown=60)
     db = SessionLocal()
     scan = ScanRun(client_id=client_id, scan_type=ScanType.subdomain_enum,
                     status=ScanStatus.running, started_at=datetime.utcnow())
@@ -81,6 +86,7 @@ def run_subdomain_enum_for_client(self, client_id: str):
         db.commit()
         raise self.retry(exc=exc)
     finally:
+        release_scan_slot(client_id)
         db.close()
 
 
@@ -100,6 +106,9 @@ def run_subdomain_enum_all_clients():
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=300)
 def run_port_scan_for_client(self, client_id: str, full_range: bool = False):
     """Feature 1.2 — Port & Service Scanning."""
+    if not try_acquire_scan_slot(client_id):
+        logger.info(f"Client {client_id} at max concurrent scans — retrying shortly.")
+        raise self.retry(countdown=60)
     db = SessionLocal()
     scan = ScanRun(client_id=client_id, scan_type=ScanType.port_scan,
                     status=ScanStatus.running, started_at=datetime.utcnow())
@@ -152,12 +161,16 @@ def run_port_scan_for_client(self, client_id: str, full_range: bool = False):
         db.commit()
         raise self.retry(exc=exc)
     finally:
+        release_scan_slot(client_id)
         db.close()
 
 
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=600)
 def run_vuln_scan_for_client(self, client_id: str, severity_filter: str | None = None):
     """Module 2 — Vulnerability Detection & Scoring (nuclei-based)."""
+    if not try_acquire_scan_slot(client_id):
+        logger.info(f"Client {client_id} at max concurrent scans — retrying shortly.")
+        raise self.retry(countdown=60)
     db = SessionLocal()
     scan = ScanRun(client_id=client_id, scan_type=ScanType.vuln_scan,
                     status=ScanStatus.running, started_at=datetime.utcnow())
@@ -202,6 +215,7 @@ def run_vuln_scan_for_client(self, client_id: str, severity_filter: str | None =
         db.commit()
         raise self.retry(exc=exc)
     finally:
+        release_scan_slot(client_id)
         db.close()
 
 
@@ -221,6 +235,9 @@ def run_vuln_scan_all_clients():
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=600)
 def run_dark_web_scan_for_client(self, client_id: str):
     """Module 3 — Dark Web & Threat Intelligence Monitoring."""
+    if not try_acquire_scan_slot(client_id):
+        logger.info(f"Client {client_id} at max concurrent scans — retrying shortly.")
+        raise self.retry(countdown=60)
     db = SessionLocal()
     scan = ScanRun(client_id=client_id, scan_type=ScanType.dark_web_scan,
                     status=ScanStatus.running, started_at=datetime.utcnow())
@@ -276,6 +293,7 @@ def run_dark_web_scan_for_client(self, client_id: str):
         db.commit()
         raise self.retry(exc=exc)
     finally:
+        release_scan_slot(client_id)
         db.close()
 
 
@@ -295,6 +313,9 @@ def run_dark_web_scan_all_clients():
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=600)
 def run_cloud_audit_for_client(self, client_id: str):
     """Module 4 — Cloud Security Posture Management. Audits every active cloud account for the client."""
+    if not try_acquire_scan_slot(client_id):
+        logger.info(f"Client {client_id} at max concurrent scans — retrying shortly.")
+        raise self.retry(countdown=60)
     db = SessionLocal()
     scan = ScanRun(client_id=client_id, scan_type=ScanType.cloud_audit,
                     status=ScanStatus.running, started_at=datetime.utcnow())
@@ -353,6 +374,7 @@ def run_cloud_audit_for_client(self, client_id: str):
         db.commit()
         raise self.retry(exc=exc)
     finally:
+        release_scan_slot(client_id)
         db.close()
 
 
@@ -626,3 +648,38 @@ def check_dns_and_ssl_all_clients():
     for cid in client_ids:
         check_dns_and_ssl_for_client.delay(cid)
     return {"clients_queued": len(client_ids)}
+
+
+@celery_app.task
+def snapshot_client_metrics_all_clients():
+    """
+    Daily rollup: one MetricSnapshot row per active client, recording
+    open-finding counts by severity and the current risk score. Backing
+    data for every trend chart in the spec (dashboard, findings, reports) —
+    written once here instead of each surface recomputing history itself.
+    """
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        clients = db.query(Client).filter_by(is_active=True).all()
+        written = 0
+        for client in clients:
+            open_findings = db.query(Finding).filter(
+                Finding.client_id == client.id,
+                Finding.status.notin_([FindingStatus.resolved, FindingStatus.verified]),
+            ).all()
+            counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+            for f in open_findings:
+                if f.severity.value in counts:
+                    counts[f.severity.value] += 1
+            db.add(MetricSnapshot(
+                client_id=client.id, snapshot_date=now,
+                critical_count=counts["critical"], high_count=counts["high"],
+                medium_count=counts["medium"], low_count=counts["low"],
+                risk_score=compute_risk_score(counts),
+            ))
+            written += 1
+        db.commit()
+        return {"snapshots_written": written}
+    finally:
+        db.close()

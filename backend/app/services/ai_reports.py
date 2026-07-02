@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.models import Client, Finding, Severity, FindingStatus, Report, ReportType
+from app.services.risk_score import compute_risk_score, risk_band
 
 logger = logging.getLogger(__name__)
 
@@ -38,26 +39,6 @@ def _claude_client() -> anthropic.Anthropic:
     if not settings.ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY is not set — cannot generate AI report content.")
     return anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-
-
-def _risk_score(counts: dict[str, int]) -> int:
-    """
-    Simple weighted risk score, 0 (best) to 100 (worst). Not meant to be
-    a rigorous model — it's a directional indicator for the dashboard/report
-    header, calibrated so a handful of open criticals dominates the score.
-    """
-    raw = counts["critical"] * 25 + counts["high"] * 10 + counts["medium"] * 3 + counts["low"] * 1
-    return min(100, raw)
-
-
-def _risk_band(score: int) -> str:
-    if score >= 60:
-        return "critical"
-    if score >= 35:
-        return "high"
-    if score >= 15:
-        return "medium"
-    return "good"
 
 
 def gather_monthly_data(db: Session, client: Client, period_start: datetime, period_end: datetime) -> dict:
@@ -81,7 +62,7 @@ def gather_monthly_data(db: Session, client: Client, period_start: datetime, per
         "findings_this_month": findings,
         "open_findings": open_findings,
         "counts": counts,
-        "risk_score": _risk_score(counts),
+        "risk_score": compute_risk_score(counts),
     }
 
 
@@ -182,7 +163,7 @@ def render_report_html(client: Client, data: dict, executive_summary: str, perio
         client_name=client.name,
         period_label=period_label,
         risk_score=data["risk_score"],
-        risk_band=_risk_band(data["risk_score"]),
+        risk_band=risk_band(data["risk_score"]),
         executive_summary=executive_summary,
         risk_analysis=risk_analysis,
         counts=data["counts"],

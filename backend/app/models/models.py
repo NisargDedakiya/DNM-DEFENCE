@@ -345,6 +345,28 @@ class PentestSchedule(Base):
     client = relationship("Client")
 
 
+class MetricSnapshot(Base):
+    """
+    One row per client per day: open-finding counts by severity + the
+    computed risk score at that point in time. Backing store for every
+    trend chart in the spec (dashboard 3/6/12mo trend, vuln lifecycle
+    trend, report risk-score trend) -- written once daily instead of
+    each surface keeping its own history.
+    """
+    __tablename__ = "metric_snapshots"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    snapshot_date = Column(DateTime, nullable=False, index=True)
+    critical_count = Column(Integer, default=0)
+    high_count = Column(Integer, default=0)
+    medium_count = Column(Integer, default=0)
+    low_count = Column(Integer, default=0)
+    risk_score = Column(Float, default=0.0)
+
+    client = relationship("Client")
+
+
 class CloudAccount(Base):
     __tablename__ = "cloud_accounts"
 
