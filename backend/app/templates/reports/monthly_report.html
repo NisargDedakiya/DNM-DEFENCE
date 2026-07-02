@@ -23,10 +23,16 @@
 </style>
 </head>
 <body>
-    <h1>{{ client_name }}</h1>
+    {% if client_logo_url %}<img src="{{ client_logo_url }}" style="max-height: 40pt; float: right;" alt="{{ client_name }} logo">{% endif %}
+    <h1 style="color: {{ client_brand_color }};">{{ client_name }}</h1>
     <div class="subtitle">Monthly Security Report &middot; {{ period_label }} &middot; Confidential</div>
 
     <div class="risk-score-box risk-{{ risk_band }}">{{ risk_score }}/100</div>
+
+    {% if risk_trend_chart_b64 %}
+    <h2>Risk Score Trend</h2>
+    <img src="data:image/png;base64,{{ risk_trend_chart_b64 }}" style="width: 100%; max-width: 500pt;" alt="Risk score trend chart">
+    {% endif %}
 
     <h2>Executive Summary</h2>
     <p>{{ executive_summary }}</p>

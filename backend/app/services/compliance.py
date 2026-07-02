@@ -65,3 +65,22 @@ def seed_compliance_controls(db: Session, client: Client) -> int:
             created += 1
     db.commit()
     return created
+
+
+def get_compliance_summary(db: Session, client_id: str) -> dict:
+    """
+    Percentage-implemented rollup per framework. Single source of truth
+    for both the portal's Compliance Center header (api/compliance.py)
+    and the monthly report's compliance section (ai_reports.py) — they
+    used to compute this independently and could drift.
+    """
+    controls = db.query(ComplianceControl).filter_by(client_id=client_id).all()
+    summary = {}
+    for c in controls:
+        fw = c.framework.value
+        summary.setdefault(fw, {"total": 0, "implemented": 0, "in_progress": 0, "missing": 0})
+        summary[fw]["total"] += 1
+        summary[fw][c.status.value] += 1
+    for fw, s in summary.items():
+        s["percent_implemented"] = round(100 * s["implemented"] / s["total"]) if s["total"] else 0
+    return summary

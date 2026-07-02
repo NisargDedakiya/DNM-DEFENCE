@@ -80,6 +80,8 @@ class Client(Base):
     sla_hours_high = Column(Integer, default=72)
     auto_send_critical_alerts = Column(Boolean, default=False)  # Feature 5.2 — opt-in per client
     dns_baseline = Column(JSON, nullable=True)  # DNS drift monitoring baseline snapshot
+    logo_url = Column(String(500), nullable=True)  # Feature 5.1 — client branding on generated reports
+    brand_color = Column(String(20), nullable=True)  # hex color, e.g. "#1a73e8"
     onboarded_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)
 

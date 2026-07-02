@@ -490,6 +490,7 @@ def send_weekly_threat_digests():
     db = SessionLocal()
     try:
         clients = db.query(Client).filter_by(is_active=True).all()
+        week_ago = datetime.utcnow() - timedelta(days=7)
         for client in clients:
             recent = (
                 db.query(Finding)
@@ -498,7 +499,14 @@ def send_weekly_threat_digests():
                 .limit(10)
                 .all()
             )
-            digest = ai_reports.generate_weekly_threat_digest(client, [f.title for f in recent])
+            # Feature 5.3 — ground the digest in this week's real CVE
+            # matches (Module 1.3) and threat-intel hits (Module 3)
+            # instead of asking Claude to recall "current" threats.
+            this_week = db.query(Finding).filter(Finding.client_id == client.id, Finding.created_at >= week_ago).all()
+            cve_hits = [f.evidence for f in this_week if f.cve_id and isinstance(f.evidence, dict)]
+            threat_intel_hits = [f.evidence for f in this_week if not f.cve_id and isinstance(f.evidence, dict) and "note" in f.evidence]
+
+            digest = ai_reports.generate_weekly_threat_digest(client, [f.title for f in recent], cve_hits, threat_intel_hits)
             logger.info(f"[{client.name}] Weekly threat digest:\n{digest}")
             notifications.notify_weekly_digest(client, digest)
         return {"clients_processed": len(clients)}

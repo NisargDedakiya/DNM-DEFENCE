@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.models import Client, ComplianceControl, ComplianceControlStatus
+from app.services.compliance import get_compliance_summary
 
 router = APIRouter(prefix="/api/clients/{client_id}/compliance", tags=["compliance"], dependencies=[Depends(require_client_access)])
 
@@ -47,16 +48,7 @@ def list_controls(client_id: str, framework: str | None = None, db: Session = De
 def compliance_summary(client_id: str, db: Session = Depends(get_db)):
     """Percentage-implemented rollup per framework — powers the Compliance Center header."""
     _require_client(client_id, db)
-    controls = db.query(ComplianceControl).filter_by(client_id=client_id).all()
-    summary = {}
-    for c in controls:
-        fw = c.framework.value
-        summary.setdefault(fw, {"total": 0, "implemented": 0, "in_progress": 0, "missing": 0})
-        summary[fw]["total"] += 1
-        summary[fw][c.status.value] += 1
-    for fw, s in summary.items():
-        s["percent_implemented"] = round(100 * s["implemented"] / s["total"]) if s["total"] else 0
-    return summary
+    return get_compliance_summary(db, client_id)
 
 
 @router.patch("/{control_id}", response_model=ComplianceControlOut)
