@@ -143,6 +143,15 @@ export const listOnchainMonitors = (clientId) => api.get(`/clients/${clientId}/w
 export const updateOnchainMonitor = (clientId, monitorId, isActive) =>
   api.patch(`/clients/${clientId}/web3/onchain-monitors/${monitorId}`, null, { params: { is_active: isActive } }).then(r => r.data)
 
+// --- AI-1/AI-2 AI/ML Security ---
+export const createPromptInjectionTest = (clientId, payload) =>
+  api.post(`/clients/${clientId}/ai-security/prompt-injection-tests`, payload).then(r => r.data)
+export const listPromptInjectionTests = (clientId) => api.get(`/clients/${clientId}/ai-security/prompt-injection-tests`).then(r => r.data)
+export const createAiFeature = (clientId, payload) => api.post(`/clients/${clientId}/ai-security/feature-inventory`, payload).then(r => r.data)
+export const listAiFeatures = (clientId) => api.get(`/clients/${clientId}/ai-security/feature-inventory`).then(r => r.data)
+export const runAiCveCheck = (clientId) => api.get(`/clients/${clientId}/ai-security/cve-check`).then(r => r.data)
+export const getAiPostureBrief = (clientId) => api.get(`/clients/${clientId}/ai-security/posture-brief`).then(r => r.data)
+
 // Authenticated file downloads must go through axios (so the Bearer token
 // header is attached) rather than a plain <a href> -- this app has no
 // cookie-based session, so a bare anchor tag hitting an authenticated

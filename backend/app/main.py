@@ -18,7 +18,7 @@ from app.core.audit import log_action as core_log_action
 from app.core.database import SessionLocal
 from app.api import (
     clients, assets, findings, cloud, reports, compliance, phishing, phishing_public, pentest, auth, audit,
-    osint, vishing, physical_security, mobile_security, web3_security,
+    osint, vishing, physical_security, mobile_security, web3_security, ai_security,
 )
 
 # Import models so Base.metadata knows about every table before create_all
@@ -88,6 +88,7 @@ TAGS_METADATA = [
     {"name": "physical-security", "description": "Physical security assessment checklist tracking (human-run, not automated)."},
     {"name": "mobile-security", "description": "MOB-1/2/3 mobile app static analysis, HAR traffic import, and MASVS compliance reporting."},
     {"name": "web3-security", "description": "WEB3-1/2/3 smart contract scanning, audit report generation, and on-chain transaction monitoring."},
+    {"name": "ai-security", "description": "AI-1/2 prompt injection testing and AI security posture (library CVEs + OWASP LLM Top 10)."},
 ]
 
 app = FastAPI(
@@ -210,6 +211,7 @@ app.include_router(vishing.router)
 app.include_router(physical_security.router)
 app.include_router(mobile_security.router)
 app.include_router(web3_security.router)
+app.include_router(ai_security.router)
 
 if settings.ENABLE_METRICS:
     # Exposes GET /metrics in Prometheus text format: request counts, latency

@@ -43,6 +43,22 @@ def _claude_client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
 
+def sanitize_ai_text(text: str) -> str:
+    """
+    AI-3 dogfooding: strips any HTML/script markup from Claude-generated
+    report text before it's rendered into report HTML (render_report_html
+    below doesn't set autoescape on its Jinja2 environment). Lazily
+    imports llm_output_sanitizer -- a standalone package under
+    packages/llm-output-sanitizer, not a hard dependency of the platform
+    -- and degrades to a pass-through if it isn't installed.
+    """
+    try:
+        from llm_output_sanitizer import strip_xss
+    except ImportError:
+        return text
+    return strip_xss(text)
+
+
 def generate_risk_trend_chart(snapshots: list[MetricSnapshot]) -> bytes | None:
     """
     Feature 5.1 — risk score trend chart. Draws a simple line chart with
@@ -221,8 +237,8 @@ def render_report_html(db: Session, client: Client, data: dict, executive_summar
         period_label=period_label,
         risk_score=data["risk_score"],
         risk_band=risk_band(data["risk_score"]),
-        executive_summary=executive_summary,
-        risk_analysis=risk_analysis,
+        executive_summary=sanitize_ai_text(executive_summary),
+        risk_analysis=sanitize_ai_text(risk_analysis),
         counts=data["counts"],
         findings=[{
             "severity": f.severity.value, "title": f.title, "cvss_score": f.cvss_score,

@@ -41,22 +41,42 @@ INDIA_DPDP_STARTER_CONTROLS = [
     ("DPDP-6", "Data retention limits are defined and enforced for personal data"),
 ]
 
+# AI-2 — OWASP LLM Top 10, reusing the ComplianceControl shape instead of a
+# parallel checklist model/table.
+OWASP_LLM_STARTER_CONTROLS = [
+    ("LLM01", "Prompt Injection — tested for direct/indirect injection resistance (see AI-1 Prompt Injection Testing Suite)"),
+    ("LLM02", "Insecure Output Handling — LLM output is sanitized before use in downstream systems (rendering, DB, shell, etc.)"),
+    ("LLM03", "Training Data Poisoning — data sources for any fine-tuning/RAG are vetted and access-controlled"),
+    ("LLM04", "Model Denial of Service — rate limiting and input size limits are enforced on LLM-facing endpoints"),
+    ("LLM05", "Supply Chain Vulnerabilities — model/library provenance and versions are tracked and monitored for CVEs"),
+    ("LLM06", "Sensitive Information Disclosure — PII/secrets are filtered from prompts and completions"),
+    ("LLM07", "Insecure Plugin Design — any tool/function-calling surface validates inputs and enforces least privilege"),
+    ("LLM08", "Excessive Agency — autonomous actions are scoped, confirmed, and auditable, not unrestricted"),
+    ("LLM09", "Overreliance — outputs are labeled as AI-generated and human review is required for high-stakes decisions"),
+    ("LLM10", "Model Theft — access to model weights/embeddings/APIs is access-controlled and monitored"),
+]
+
 FRAMEWORK_SEEDS = {
     ComplianceFramework.soc2: SOC2_STARTER_CONTROLS,
     ComplianceFramework.iso27001: ISO27001_STARTER_CONTROLS,
     ComplianceFramework.india_dpdp: INDIA_DPDP_STARTER_CONTROLS,
+    ComplianceFramework.owasp_llm: OWASP_LLM_STARTER_CONTROLS,
 }
 
 
 def seed_compliance_controls(db: Session, client: Client) -> int:
-    """Called once on client onboarding (Module 7 workflow). Idempotent — skips if already seeded."""
-    existing = db.query(ComplianceControl).filter_by(client_id=client.id).count()
-    if existing > 0:
-        return 0
-
+    """
+    Called on client onboarding (Module 7 workflow). Idempotent per
+    framework (not just per client) so it can be safely re-run to backfill
+    a newly-added framework -- like owasp_llm -- for clients that were
+    already onboarded before that framework existed.
+    """
     now = datetime.utcnow()
     created = 0
     for framework, controls in FRAMEWORK_SEEDS.items():
+        already_seeded = db.query(ComplianceControl).filter_by(client_id=client.id, framework=framework).count()
+        if already_seeded > 0:
+            continue
         for control_id, control_name in controls:
             db.add(ComplianceControl(
                 client_id=client.id, framework=framework, control_id=control_id,

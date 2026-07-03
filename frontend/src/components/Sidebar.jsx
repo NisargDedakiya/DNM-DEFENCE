@@ -36,6 +36,7 @@ export default function Sidebar({ user, onLogout }) {
             <NavLink to={`/clients/${clientId}/social-engineering`} className={navItem}>Social Engineering</NavLink>
             <NavLink to={`/clients/${clientId}/mobile-security`} className={navItem}>Mobile App Security</NavLink>
             <NavLink to={`/clients/${clientId}/web3-security`} className={navItem}>Web3 &amp; Blockchain</NavLink>
+            <NavLink to={`/clients/${clientId}/ai-security`} className={navItem}>AI/ML Security</NavLink>
           </>
         )}
       </nav>

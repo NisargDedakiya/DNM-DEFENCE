@@ -75,6 +75,25 @@ jobs:
           fi
           rm -f alembic/versions/*ci_check_temp*.py
 
+  llm-sanitizer-test:
+    name: llm-output-sanitizer package tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/llm-output-sanitizer
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package (editable) + test deps
+        run: pip install -e ".[test]" --break-system-packages || pip install -e ".[test]"
+
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
   backend-lint:
     name: Backend lint
     runs-on: ubuntu-latest

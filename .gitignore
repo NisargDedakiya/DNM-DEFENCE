@@ -10,6 +10,7 @@ __pycache__/
 *.pyc
 /backend/.pytest_cache/
 /backend/.mypy_cache/
+*.egg-info/
 
 # Node dependencies and build folders
 /frontend/node_modules/

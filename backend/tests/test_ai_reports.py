@@ -54,6 +54,29 @@ def _seed_client_with_data(db, with_compliance=True, with_snapshots=True):
     return client.id
 
 
+def test_sanitize_ai_text_strips_script_tags_when_package_installed():
+    """AI-3 dogfooding: llm_output_sanitizer is installed editable in dev (packages/llm-output-sanitizer) -- confirms ai_reports.py actually calls into it rather than being a dead import."""
+    result = ai_reports.sanitize_ai_text("<script>alert(1)</script>Executive summary text.")
+    assert result == "Executive summary text."
+
+
+def test_sanitize_ai_text_passes_through_plain_text():
+    assert ai_reports.sanitize_ai_text("Just a normal executive summary.") == "Just a normal executive summary."
+
+
+def test_sanitize_ai_text_degrades_gracefully_if_package_missing(monkeypatch):
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "llm_output_sanitizer":
+            raise ImportError("simulated: package not installed")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    assert ai_reports.sanitize_ai_text("<script>alert(1)</script>Hello") == "<script>alert(1)</script>Hello"
+
+
 def test_generate_compliance_summary_reflects_real_control_data(client):
     db = SessionLocal()
     client_id = _seed_client_with_data(db, with_compliance=True, with_snapshots=False)

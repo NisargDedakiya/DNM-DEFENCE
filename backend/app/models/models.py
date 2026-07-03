@@ -247,6 +247,7 @@ class ComplianceFramework(str, enum.Enum):
     soc2 = "soc2"
     iso27001 = "iso27001"
     india_dpdp = "india_dpdp"
+    owasp_llm = "owasp_llm"  # AI-2 — OWASP LLM Top 10, reuses the existing ComplianceControl shape
 
 
 class ComplianceControlStatus(str, enum.Enum):
@@ -612,5 +613,36 @@ class OnChainMonitor(Base):
     is_active = Column(Boolean, default=True)
     last_alerts = Column(JSON, default=list)  # most recent poll's alerts, for the dashboard
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+# --- Track1_Expanded_Services.docx — Service 4: AI/ML Security ---
+
+class PromptInjectionTest(Base):
+    """AI-1 — one row per prompt injection test run against a client's LLM-integrated endpoint."""
+    __tablename__ = "prompt_injection_tests"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    target_url = Column(String(500), nullable=False)
+    results = Column(JSON, default=list)  # full list of {payload, response_text, classification}
+    success_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+class AIFeatureInventory(Base):
+    """AI-2 — a client-declared AI/ML feature and its library stack, for CVE monitoring + the posture dashboard."""
+    __tablename__ = "ai_feature_inventory"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    feature_name = Column(String(255), nullable=False)
+    feature_type = Column(String(100), nullable=True)  # e.g. "chatbot", "rag_pipeline", "recommendation_model"
+    library_stack = Column(JSON, default=dict)  # {"langchain": "0.1.0", "openai": "1.40.0", ...}
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
     client = relationship("Client")
