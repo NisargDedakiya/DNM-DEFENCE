@@ -277,6 +277,11 @@ class PhishingCampaignStatus(str, enum.Enum):
     completed = "completed"
 
 
+class PhishingCampaignType(str, enum.Enum):
+    phishing = "phishing"
+    spear_phishing = "spear_phishing"
+
+
 class PhishingCampaign(Base):
     __tablename__ = "phishing_campaigns"
 
@@ -284,6 +289,8 @@ class PhishingCampaign(Base):
     client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     template_name = Column(String(255), nullable=True)  # e.g. "IT password reset", "Invoice overdue"
+    campaign_type = Column(Enum(PhishingCampaignType), default=PhishingCampaignType.phishing)  # SE-2
+    template_html = Column(Text, nullable=True)  # SE-2 — supports {target_name}/{target_role}/{tracking_pixel}/{tracking_link} variables
     status = Column(Enum(PhishingCampaignStatus), default=PhishingCampaignStatus.draft)
     target_count = Column(Integer, default=0)
     sent_count = Column(Integer, default=0)
@@ -297,6 +304,35 @@ class PhishingCampaign(Base):
 
     client = relationship("Client")
     results = relationship("PhishingResult", back_populates="campaign", cascade="all, delete-orphan")
+    targets = relationship("PhishingTarget", back_populates="campaign", cascade="all, delete-orphan")
+
+
+class PhishingTarget(Base):
+    """
+    SE-2 per-target personalization + tracking. Distinct from PhishingResult
+    (which is the anonymized-by-convention outcome log fed by an external
+    tool like GoPhish) -- a PhishingTarget is created up front from a CSV
+    import and carries its own tracking_token so this platform can serve
+    the pixel/landing page itself for campaigns built with the builder here.
+    """
+    __tablename__ = "phishing_targets"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    campaign_id = Column(UUID(as_uuid=False), ForeignKey("phishing_campaigns.id"), nullable=False, index=True)
+    name = Column(String(255), nullable=True)
+    role = Column(String(255), nullable=True)
+    email = Column(String(255), nullable=False)
+    tracking_token = Column(String(64), nullable=False, unique=True, index=True)
+    sent_at = Column(DateTime, nullable=True)
+    opened = Column(Boolean, default=False)
+    opened_at = Column(DateTime, nullable=True)
+    clicked = Column(Boolean, default=False)
+    clicked_at = Column(DateTime, nullable=True)
+    submitted_credentials = Column(Boolean, default=False)  # boolean only -- the actual submitted password is never stored
+    submitted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    campaign = relationship("PhishingCampaign", back_populates="targets")
 
 
 class PhishingResult(Base):
@@ -390,3 +426,191 @@ class CloudAccount(Base):
     credentials_rotated_at = Column(DateTime, default=datetime.utcnow)  # Feature: API key rotation tracking
 
     client = relationship("Client", back_populates="cloud_accounts")
+
+
+# --- Track1_Expanded_Services.docx — Service 1: Social Engineering & Physical Security ---
+
+class OSINTProfile(Base):
+    """SE-1 — one row per generated OSINT reconnaissance snapshot for a client."""
+    __tablename__ = "osint_profiles"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    generated_at = Column(DateTime, default=datetime.utcnow)
+    findings = Column(JSON, default=dict)  # whois, dns_records, email_patterns, google_dorks, github_hits, job_listing_tech, narrative
+    report_path = Column(String(500), nullable=True)
+
+    client = relationship("Client")
+
+
+class VishingRiskRating(str, enum.Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+    critical = "critical"
+
+
+class VishingEngagement(Base):
+    """
+    SE-3 — analysis of a single vishing test call recording. The call
+    itself is placed by a human analyst under the engagement's own
+    consent process; this row starts once a recording (or manually
+    supplied transcript) exists.
+    """
+    __tablename__ = "vishing_engagements"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    scenario = Column(String(500), nullable=True)  # e.g. "IT helpdesk password reset pretext"
+    recording_path = Column(String(500), nullable=True)
+    transcript = Column(Text, nullable=True)
+    analysis = Column(JSON, default=dict)  # techniques_identified, disclosures, risk_rating, summary
+    risk_rating = Column(Enum(VishingRiskRating), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+class PhysicalAssessmentStatus(str, enum.Enum):
+    scheduled = "scheduled"
+    in_progress = "in_progress"
+    completed = "completed"
+
+
+class PhysicalTestType(str, enum.Enum):
+    tailgating = "tailgating"
+    badge_cloning = "badge_cloning"
+    dumpster_diving = "dumpster_diving"
+    visitor_access = "visitor_access"
+    clean_desk = "clean_desk"
+    usb_drop = "usb_drop"
+
+
+class PhysicalSecurityAssessment(Base):
+    """
+    Physical security engagement tracker. Deliberately a plain
+    checklist/engagement record, not an automation target -- tailgating,
+    badge cloning, dumpster diving, and USB-drop tests require an
+    in-person analyst and can't be scripted.
+    """
+    __tablename__ = "physical_security_assessments"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    site_name = Column(String(255), nullable=True)
+    scheduled_date = Column(DateTime, nullable=True)
+    status = Column(Enum(PhysicalAssessmentStatus), default=PhysicalAssessmentStatus.scheduled)
+    summary = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+    checklist_items = relationship("PhysicalSecurityChecklistItem", back_populates="assessment", cascade="all, delete-orphan")
+
+
+class PhysicalSecurityChecklistItem(Base):
+    __tablename__ = "physical_security_checklist_items"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    assessment_id = Column(UUID(as_uuid=False), ForeignKey("physical_security_assessments.id"), nullable=False, index=True)
+    test_type = Column(Enum(PhysicalTestType), nullable=False)
+    attempted = Column(Boolean, default=False)
+    outcome_notes = Column(Text, nullable=True)
+    severity = Column(Enum(Severity), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    assessment = relationship("PhysicalSecurityAssessment", back_populates="checklist_items")
+
+
+# --- Track1_Expanded_Services.docx — Service 2: Mobile App Security ---
+
+class MobilePlatform(str, enum.Enum):
+    android = "android"
+    ios = "ios"
+
+
+class MobileScanStatus(str, enum.Enum):
+    queued = "queued"
+    completed = "completed"
+    failed = "failed"
+
+
+class MobileAppScan(Base):
+    """MOB-1/MOB-3 — one row per uploaded mobile app static analysis."""
+    __tablename__ = "mobile_app_scans"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    platform = Column(Enum(MobilePlatform), nullable=False)
+    original_filename = Column(String(255), nullable=True)
+    file_path = Column(String(500), nullable=True)
+    status = Column(Enum(MobileScanStatus), default=MobileScanStatus.queued)
+    app_label = Column(String(255), nullable=True)  # Android package name / iOS bundle identifier
+    findings = Column(JSON, default=list)  # list of MASVS-tagged finding dicts, see mobile_sast.py
+    masvs_score = Column(Integer, nullable=True)
+    executive_summary = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+class MobileTrafficImport(Base):
+    """MOB-2 — one row per imported HAR traffic capture, optionally tied to a MobileAppScan."""
+    __tablename__ = "mobile_traffic_imports"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    mobile_app_scan_id = Column(UUID(as_uuid=False), ForeignKey("mobile_app_scans.id"), nullable=True, index=True)
+    discovered_endpoints = Column(JSON, default=list)
+    sensitive_data_hits = Column(JSON, default=list)
+    auth_classification = Column(JSON, default=dict)
+    openapi_lite = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+    mobile_app_scan = relationship("MobileAppScan")
+
+
+# --- Track1_Expanded_Services.docx — Service 3: Blockchain & Web3 Security ---
+
+class ContractAuditStatus(str, enum.Enum):
+    queued = "queued"
+    completed = "completed"
+    failed = "failed"
+
+
+class SmartContractAudit(Base):
+    """WEB3-1/WEB3-2 — one row per submitted Solidity contract audit."""
+    __tablename__ = "smart_contract_audits"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    contract_name = Column(String(255), nullable=True)
+    contract_source = Column(Text, nullable=True)
+    network = Column(String(50), default="ethereum")
+    status = Column(Enum(ContractAuditStatus), default=ContractAuditStatus.queued)
+    solc_version_hint = Column(String(50), nullable=True)
+    findings = Column(JSON, default=list)
+    report_path = Column(String(500), nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+class OnChainMonitor(Base):
+    """WEB3-3 — one row per contract address under interval-based on-chain monitoring."""
+    __tablename__ = "onchain_monitors"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    contract_address = Column(String(255), nullable=False)
+    network = Column(String(50), default="ethereum")
+    alert_thresholds = Column(JSON, default=dict)  # e.g. {"large_transfer_native_wei": 10**19}
+    telegram_chat_id = Column(String(100), nullable=True)
+    last_checked_block = Column(Integer, nullable=True)
+    is_active = Column(Boolean, default=True)
+    last_alerts = Column(JSON, default=list)  # most recent poll's alerts, for the dashboard
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")

@@ -31,6 +31,11 @@ export default function Sidebar({ user, onLogout }) {
             <NavLink to={`/clients/${clientId}/compliance`} className={navItem}>Compliance Center</NavLink>
             <NavLink to={`/clients/${clientId}/phishing`} className={navItem}>Phishing Simulations</NavLink>
             <NavLink to={`/clients/${clientId}/reports`} className={navItem}>Report Library</NavLink>
+
+            <div className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-widest text-muted font-mono">Expanded Services</div>
+            <NavLink to={`/clients/${clientId}/social-engineering`} className={navItem}>Social Engineering</NavLink>
+            <NavLink to={`/clients/${clientId}/mobile-security`} className={navItem}>Mobile App Security</NavLink>
+            <NavLink to={`/clients/${clientId}/web3-security`} className={navItem}>Web3 &amp; Blockchain</NavLink>
           </>
         )}
       </nav>

@@ -40,3 +40,13 @@ pytest>=7.4.4
 pytest-cov>=4.1.0
 locust>=2.24.0
 email-validator>=2.0.0
+
+# Expanded services (Track1_Expanded_Services.docx) — 5 new service lines
+androguard>=4.1.2          # MOB-1 pure-Python APK/DEX static analysis, no JVM required
+slither-analyzer>=0.10.4   # WEB3-1 Solidity static analysis (direct Python API)
+semgrep>=1.78.0             # WEB3-1 pattern-based Solidity rules, DSO-2 SARIF-adjacent scanning
+web3>=6.20.0                # WEB3-3 on-chain transaction/event polling
+checkov>=3.2.0              # DSO-4 IaC scanning (Terraform/CloudFormation/K8s/Helm/Compose)
+openai>=1.40.0              # SE-3 Whisper transcription (key-gated, optional)
+bleach>=6.1.0                # AI-3 sanitizer XSS stripping
+jsonschema>=4.23.0           # AI-3 sanitizer schema validation

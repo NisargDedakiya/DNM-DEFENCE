@@ -70,4 +70,8 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.tasks.send_weekly_threat_digests",
         "schedule": crontab(hour=7, minute=0, day_of_week=1),  # Monday 7 AM
     },
+    "onchain-monitor-poll-all-active": {
+        "task": "app.workers.tasks.poll_all_active_onchain_monitors",
+        "schedule": crontab(minute=f"*/{settings.ONCHAIN_POLL_INTERVAL_MINUTES}"),  # WEB3-3 — interval polling, not block-by-block
+    },
 }

@@ -1,0 +1,38 @@
+rules:
+  - id: reentrancy-external-call
+    languages: [solidity]
+    severity: WARNING
+    message: >-
+      External call detected. Verify state changes happen before this call
+      (checks-effects-interactions pattern) to avoid reentrancy.
+    patterns:
+      - pattern-either:
+          - pattern: $X.call(...)
+          - pattern: $X.call{...}(...)
+
+  - id: tx-origin-auth
+    languages: [solidity]
+    severity: ERROR
+    message: >-
+      tx.origin used, likely for authorization. Vulnerable to phishing via a
+      malicious intermediate contract -- use msg.sender instead.
+    pattern: tx.origin
+
+  - id: unprotected-selfdestruct
+    languages: [solidity]
+    severity: ERROR
+    message: >-
+      selfdestruct()/suicide() call found. Confirm it is access-controlled --
+      an unprotected selfdestruct lets anyone destroy the contract.
+    patterns:
+      - pattern-either:
+          - pattern: selfdestruct(...)
+          - pattern: suicide(...)
+
+  - id: block-timestamp-dependence
+    languages: [solidity]
+    severity: INFO
+    message: >-
+      block.timestamp used. Miners/validators have some latitude over this
+      value -- avoid using it for anything security-critical like randomness.
+    pattern: block.timestamp

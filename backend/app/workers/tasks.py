@@ -11,9 +11,10 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.models import (
     Client, Asset, AssetType, ScanRun, ScanStatus, ScanType, CloudAccount,
-    Finding, FindingStatus, Severity, MetricSnapshot,
+    Finding, FindingStatus, Severity, MetricSnapshot, OnChainMonitor,
 )
 from app.services import recon, vuln_scan, threat_intel, cspm, ai_reports, notifications, pentest_scheduling, dns_ssl_monitor, auth_protocol_checks
+from app.services import onchain_monitor as onchain_monitor_service
 from app.services.risk_score import compute_risk_score
 from app.workers.celery_app import celery_app
 
@@ -784,5 +785,41 @@ def snapshot_client_metrics_all_clients():
             written += 1
         db.commit()
         return {"snapshots_written": written}
+    finally:
+        db.close()
+
+
+@celery_app.task
+def poll_all_active_onchain_monitors():
+    """
+    WEB3-3 — polls every active OnChainMonitor on an interval (see
+    settings.ONCHAIN_POLL_INTERVAL_MINUTES / the beat schedule below),
+    not block-by-block. Alerts route to Telegram (per-monitor chat_id, if
+    set) and to the client's Slack webhook, matching the existing
+    notify_client channel pattern.
+    """
+    db = SessionLocal()
+    try:
+        monitors = db.query(OnChainMonitor).filter_by(is_active=True).all()
+        polled = 0
+        for monitor in monitors:
+            client = db.query(Client).get(monitor.client_id)
+            if not client:
+                continue
+            result = onchain_monitor_service.poll_monitor(
+                monitor.contract_address, monitor.network, monitor.last_checked_block, monitor.alert_thresholds or {},
+            )
+            monitor.last_checked_block = result["new_last_checked_block"]
+            monitor.last_alerts = result["alerts"]
+            polled += 1
+
+            for alert in result["alerts"]:
+                message = f"[{client.name}] On-chain alert on {monitor.contract_address} ({monitor.network}): {alert['note']}"
+                if monitor.telegram_chat_id:
+                    notifications.send_telegram_message(monitor.telegram_chat_id, message)
+                if client.slack_webhook_url:
+                    notifications.send_slack_message(client.slack_webhook_url, message)
+        db.commit()
+        return {"monitors_polled": polled}
     finally:
         db.close()

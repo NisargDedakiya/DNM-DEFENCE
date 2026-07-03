@@ -336,6 +336,31 @@ def generate_monthly_report(db: Session, client: Client) -> Report:
     return report
 
 
+def generate_phishing_debrief(client: Client, campaign_name: str, targets: list) -> str:
+    """
+    SE-2 — Claude-generated per-campaign employee debrief, grounded in the
+    real per-target outcome counts (opened/clicked/submitted_credentials)
+    rather than a generic template, so the training message actually
+    reflects what happened in this specific campaign.
+    """
+    client_ai = _claude_client()
+    total = len(targets)
+    clicked = sum(1 for t in targets if t.clicked)
+    submitted = sum(1 for t in targets if t.submitted_credentials)
+
+    prompt = f"""Write a short (150-200 word) post-campaign debrief email for employees of {client.name} who took part in a phishing simulation ("{campaign_name}").
+
+Results: {total} employees targeted, {clicked} clicked the link, {submitted} submitted credentials on the fake page.
+
+Structure: (1) explain this was a simulated test, not a real attack, (2) explain the specific tactic used without being condescending, (3) 2-3 concrete tips for spotting similar real attempts, (4) a positive, non-shaming tone -- the goal is behavior change, not blame. No greeting/sign-off, just the body."""
+
+    response = client_ai.messages.create(
+        model=settings.ANTHROPIC_MODEL, max_tokens=350,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return "".join(block.text for block in response.content if block.type == "text").strip()
+
+
 def draft_alert_notification(finding: Finding) -> str:
     """
     Feature 5.2 — drafts a client-facing alert for a critical/high finding.

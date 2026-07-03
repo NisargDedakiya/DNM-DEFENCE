@@ -7,6 +7,7 @@ separate from production mail to avoid reputation damage — wire an
 external phishing simulation tool, e.g. GoPhish, and have it POST results
 back to /results, or import a CSV export from one).
 """
+import secrets
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,8 +15,14 @@ from app.core.auth import require_client_access, get_current_user
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
-from app.models.models import Client, PhishingCampaign, PhishingResult, PhishingCampaignStatus, User, UserRole
+from app.models.models import (
+    Client, PhishingCampaign, PhishingResult, PhishingTarget, PhishingCampaignStatus,
+    PhishingCampaignType, User, UserRole,
+)
+from app.services.notifications import send_email
+from app.services.ai_reports import generate_phishing_debrief
 
 router = APIRouter(prefix="/api/clients/{client_id}/phishing-campaigns", tags=["phishing"], dependencies=[Depends(require_client_access)])
 
@@ -75,6 +82,29 @@ def _require_campaign(client_id: str, campaign_id: str, db: Session) -> Phishing
     if not c:
         raise HTTPException(404, "Campaign not found")
     return c
+
+
+class TargetImportRow(BaseModel):
+    name: str | None = None
+    role: str | None = None
+    email: str
+
+
+class TargetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    name: str | None
+    role: str | None
+    email: str
+    sent_at: datetime | None
+    opened: bool
+    clicked: bool
+    submitted_credentials: bool
+
+
+class TemplateIn(BaseModel):
+    template_html: str  # supports {target_name}/{target_role}/{tracking_pixel}/{tracking_link} placeholders
+    campaign_type: str = "phishing"
 
 
 @router.post("", response_model=CampaignOut, status_code=201)
@@ -187,3 +217,87 @@ def training_trend(client_id: str, db: Session = Depends(get_db)):
         "click_rate": round(100 * c.clicked_count / c.sent_count, 1) if c.sent_count else None,
         "report_rate": round(100 * c.reported_count / c.sent_count, 1) if c.sent_count else None,
     } for c in campaigns]
+
+
+@router.post("/{campaign_id}/targets/import", response_model=list[TargetOut], status_code=201)
+def import_targets(client_id: str, campaign_id: str, rows: list[TargetImportRow], db: Session = Depends(get_db)):
+    """SE-2 — CSV-derived target import (parse the CSV client-side / with any tool, POST the parsed rows here)."""
+    campaign = _require_campaign(client_id, campaign_id, db)
+    created = []
+    for row in rows:
+        target = PhishingTarget(
+            campaign_id=campaign_id, name=row.name, role=row.role, email=row.email,
+            tracking_token=secrets.token_urlsafe(24),
+        )
+        db.add(target)
+        created.append(target)
+    campaign.target_count += len(rows)
+    db.commit()
+    for t in created:
+        db.refresh(t)
+    return created
+
+
+@router.get("/{campaign_id}/targets", response_model=list[TargetOut])
+def list_targets(client_id: str, campaign_id: str, db: Session = Depends(get_db)):
+    _require_campaign(client_id, campaign_id, db)
+    return db.query(PhishingTarget).filter_by(campaign_id=campaign_id).order_by(PhishingTarget.created_at).all()
+
+
+@router.patch("/{campaign_id}/template")
+def set_template(client_id: str, campaign_id: str, payload: TemplateIn, db: Session = Depends(get_db)):
+    """SE-2 — template builder. Stores raw HTML with {target_name}/{target_role}/{tracking_pixel}/{tracking_link} placeholders, rendered per-target at send time."""
+    campaign = _require_campaign(client_id, campaign_id, db)
+    if payload.campaign_type not in PhishingCampaignType.__members__:
+        raise HTTPException(422, f"campaign_type must be one of {list(PhishingCampaignType.__members__)}")
+    campaign.template_html = payload.template_html
+    campaign.campaign_type = payload.campaign_type
+    db.commit()
+    return {"message": "template saved"}
+
+
+@router.post("/{campaign_id}/send")
+def send_campaign(client_id: str, campaign_id: str, db: Session = Depends(get_db)):
+    """
+    SE-2 — sends the saved template to every imported target via the
+    existing notifications.send_email channel, with a per-target tracking
+    pixel and click-through link injected. Requires SENDGRID_API_KEY to
+    actually deliver (see notifications.py); without it this reports 0 sent
+    rather than failing the request.
+    """
+    campaign = _require_campaign(client_id, campaign_id, db)
+    if not campaign.template_html:
+        raise HTTPException(422, "Set a template before sending (PATCH .../template)")
+    targets = db.query(PhishingTarget).filter_by(campaign_id=campaign_id).all()
+    if not targets:
+        raise HTTPException(422, "No targets imported for this campaign")
+
+    sent = 0
+    for t in targets:
+        pixel_url = f"{settings.PUBLIC_API_BASE_URL}/api/phishing-track/{t.tracking_token}/pixel.gif"
+        link_url = f"{settings.PUBLIC_API_BASE_URL}/api/phishing-track/{t.tracking_token}/landing"
+        body = campaign.template_html.format(
+            target_name=t.name or "there", target_role=t.role or "",
+            tracking_pixel=pixel_url, tracking_link=link_url,
+        )
+        if send_email(t.email, campaign.template_name or campaign.name, body):
+            t.sent_at = datetime.utcnow()
+            sent += 1
+
+    campaign.sent_count += sent
+    if campaign.status == PhishingCampaignStatus.draft:
+        campaign.status = PhishingCampaignStatus.running
+        campaign.started_at = datetime.utcnow()
+    db.commit()
+    return {"sent": sent, "total_targets": len(targets)}
+
+
+@router.get("/{campaign_id}/debrief")
+def generate_debrief(client_id: str, campaign_id: str, db: Session = Depends(get_db)):
+    """SE-2 — Claude-drafted per-employee debrief grounded in this campaign's real target outcomes."""
+    client = _require_client(client_id, db)
+    campaign = _require_campaign(client_id, campaign_id, db)
+    targets = db.query(PhishingTarget).filter_by(campaign_id=campaign_id).all()
+    if not targets:
+        raise HTTPException(422, "No targets recorded for this campaign yet")
+    return {"debrief": generate_phishing_debrief(client, campaign.name, targets)}

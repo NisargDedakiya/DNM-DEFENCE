@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+    @page { size: A4; margin: 2.2cm 1.8cm; }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #1a1a2e; font-size: 10.5pt; line-height: 1.5; }
+    h1 { font-size: 22pt; margin-bottom: 2pt; }
+    h2 { font-size: 14pt; margin-top: 24pt; border-bottom: 2px solid #16213e; padding-bottom: 4pt; }
+    .subtitle { color: #555; font-size: 11pt; margin-bottom: 20pt; }
+    .summary-grid { display: flex; gap: 12pt; margin: 12pt 0; }
+    .summary-cell { flex: 1; text-align: center; padding: 10pt; background: #f4f4f8; border-radius: 6pt; }
+    .summary-cell .num { font-size: 20pt; font-weight: bold; display: block; }
+    .finding { margin-top: 14pt; padding: 8pt 10pt; border-left: 4pt solid #ccc; background: #f9f9fb; }
+    .finding.sev-critical { border-color: #b91c1c; } .finding.sev-high { border-color: #ea580c; }
+    .finding.sev-medium { border-color: #ca8a04; } .finding.sev-low { border-color: #888; } .finding.sev-info { border-color: #bbb; }
+    .finding-title { font-weight: bold; font-size: 11pt; }
+    .sev-critical .finding-title { color: #b91c1c; } .sev-high .finding-title { color: #ea580c; } .sev-medium .finding-title { color: #ca8a04; }
+    .meta { font-size: 8.5pt; color: #666; margin-top: 2pt; }
+    code, pre { font-family: 'Courier New', monospace; font-size: 9pt; background: #eee; padding: 1pt 3pt; border-radius: 3pt; }
+    footer { margin-top: 30pt; font-size: 8pt; color: #888; border-top: 1px solid #ddd; padding-top: 8pt; }
+</style>
+</head>
+<body>
+    <h1>{{ contract_name }} — Smart Contract Security Audit</h1>
+    <div class="subtitle">{{ client_name }} &middot; {{ network }} network &middot; Confidential{% if public_mode %} (public summary edition — exploit detail redacted){% endif %}</div>
+
+    <h2>Severity Summary</h2>
+    <div class="summary-grid">
+        <div class="summary-cell"><span class="num" style="color:#b91c1c">{{ counts.critical }}</span>Critical</div>
+        <div class="summary-cell"><span class="num" style="color:#ea580c">{{ counts.high }}</span>High</div>
+        <div class="summary-cell"><span class="num" style="color:#ca8a04">{{ counts.medium }}</span>Medium</div>
+        <div class="summary-cell"><span class="num">{{ counts.low }}</span>Low</div>
+        <div class="summary-cell"><span class="num">{{ counts.info }}</span>Info</div>
+    </div>
+
+    <h2>Findings</h2>
+    {% if findings %}
+        {% for f in findings %}
+        <div class="finding sev-{{ f.severity }}">
+            <div class="finding-title">[{{ f.severity|upper }}] {{ f.check }}</div>
+            <div class="meta">Detected by {{ f.tool }}{% if f.elements and f.elements[0].line %} &middot; line {{ f.elements[0].line }}{% endif %}
+                {% if f.ai_verdict == 'LIKELY_FALSE_POSITIVE' %} &middot; AI review: likely false positive ({{ f.ai_reason }}){% endif %}</div>
+            <p>{{ f.description }}</p>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p>No findings from Slither/Semgrep{% if not public_mode %} or optional enrichment tools{% endif %}.</p>
+    {% endif %}
+
+    <footer>Generated {{ generated_at }}. Automated static analysis is not a substitute for a full manual audit before mainnet deployment of contracts handling real value.</footer>
+</body>
+</html>
