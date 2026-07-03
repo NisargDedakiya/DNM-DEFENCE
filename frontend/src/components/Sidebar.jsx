@@ -1,4 +1,4 @@
-import { NavLink, useParams } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 
 const navItem = ({ isActive }) =>
   `block px-3 py-2 rounded-md text-sm transition-colors ${
@@ -6,7 +6,13 @@ const navItem = ({ isActive }) =>
   }`
 
 export default function Sidebar({ user, onLogout }) {
-  const { clientId } = useParams()
+  // Sidebar is rendered as a sibling of <Routes> in App.jsx, not inside the
+  // matched route's subtree, so useParams() (which reads from Routes'
+  // RouteContext) always returns {} here. useLocation() is a Router-level
+  // context available everywhere, so the client id is parsed from the
+  // pathname directly instead.
+  const location = useLocation()
+  const clientId = location.pathname.match(/^\/clients\/([^/]+)/)?.[1]
   const isStaff = user?.role === 'admin' || user?.role === 'analyst'
 
   return (

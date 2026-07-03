@@ -11,6 +11,8 @@ __pycache__/
 /backend/.pytest_cache/
 /backend/.mypy_cache/
 *.egg-info/
+/backend/.coverage
+/backend/coverage.xml
 
 # Node dependencies and build folders
 /frontend/node_modules/
