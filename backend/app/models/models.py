@@ -646,3 +646,39 @@ class AIFeatureInventory(Base):
     updated_at = Column(DateTime, default=datetime.utcnow)
 
     client = relationship("Client")
+
+
+# --- Track1_Expanded_Services.docx — Service 5: DevSecOps Pipeline & CI/CD Security ---
+
+class PipelineProvider(str, enum.Enum):
+    github = "github"
+    gitlab = "gitlab"    # documented extension point -- not implemented
+    jenkins = "jenkins"  # documented extension point -- not implemented
+
+
+class PipelineIntegration(Base):
+    """DSO-1 — one row per repo registered for gate deployment + run polling. PipelineFinding is NOT a separate table -- it reuses Finding with a "[Pipeline]"/"[CI Scan]"/"[IaC]" title prefix, the same source-tagging convention cspm.py uses for cloud provider tagging."""
+    __tablename__ = "pipeline_integrations"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    provider = Column(Enum(PipelineProvider), default=PipelineProvider.github)
+    repo_full_name = Column(String(255), nullable=False)  # e.g. "acme/backend"
+    gate_config = Column(JSON, default=dict)  # {"template": "python_fastapi", "block_on_severity": "high"}
+    is_active = Column(Boolean, default=True)
+    last_synced_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+class DeveloperScorecardSnapshot(Base):
+    """DSO-3 — one rollup per client per day. Same shape idea as MetricSnapshot from the first spec pass."""
+    __tablename__ = "developer_scorecard_snapshots"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    snapshot_date = Column(DateTime, nullable=False, index=True)
+    metrics = Column(JSON, default=dict)  # {"pipeline_health_score", "vulnerabilities_blocked", "secrets_blocked", "mttr_hours", ...}
+
+    client = relationship("Client")

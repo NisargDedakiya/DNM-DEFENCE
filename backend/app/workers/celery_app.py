@@ -74,4 +74,12 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.tasks.poll_all_active_onchain_monitors",
         "schedule": crontab(minute=f"*/{settings.ONCHAIN_POLL_INTERVAL_MINUTES}"),  # WEB3-3 — interval polling, not block-by-block
     },
+    "daily-developer-scorecard-snapshot": {
+        "task": "app.workers.tasks.snapshot_developer_scorecards_all_clients",
+        "schedule": crontab(hour=1, minute=30, day_of_week="*"),  # daily, offset from the main metric snapshot
+    },
+    "weekly-devsecops-triage-digest": {
+        "task": "app.workers.tasks.send_weekly_triage_digests",
+        "schedule": crontab(hour=7, minute=30, day_of_week=1),  # Monday 7:30 AM, offset from the threat digest
+    },
 }

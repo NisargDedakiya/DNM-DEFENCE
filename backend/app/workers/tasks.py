@@ -15,6 +15,8 @@ from app.models.models import (
 )
 from app.services import recon, vuln_scan, threat_intel, cspm, ai_reports, notifications, pentest_scheduling, dns_ssl_monitor, auth_protocol_checks
 from app.services import onchain_monitor as onchain_monitor_service
+from app.services import scorecard as scorecard_service
+from app.services import triage as triage_service
 from app.services.risk_score import compute_risk_score
 from app.workers.celery_app import celery_app
 
@@ -821,5 +823,44 @@ def poll_all_active_onchain_monitors():
                     notifications.send_slack_message(client.slack_webhook_url, message)
         db.commit()
         return {"monitors_polled": polled}
+    finally:
+        db.close()
+
+
+@celery_app.task
+def snapshot_developer_scorecards_all_clients():
+    """DSO-3 — daily rollup, one DeveloperScorecardSnapshot row per active client, mirroring snapshot_client_metrics_all_clients's pattern."""
+    db = SessionLocal()
+    try:
+        clients = db.query(Client).filter_by(is_active=True).all()
+        for client in clients:
+            scorecard_service.snapshot_scorecard(db, client)
+        return {"snapshots_written": len(clients)}
+    finally:
+        db.close()
+
+
+@celery_app.task
+def send_weekly_triage_digests():
+    """DSO-2 — Monday morning, generates and logs a CI/CD triage digest per active client, grounded in this week's real pipeline/CI-scan/IaC findings."""
+    db = SessionLocal()
+    try:
+        clients = db.query(Client).filter_by(is_active=True).all()
+        week_ago = datetime.utcnow() - timedelta(days=7)
+        for client in clients:
+            recent = db.query(Finding).filter(
+                Finding.client_id == client.id, Finding.created_at >= week_ago,
+                Finding.title.like("[Pipeline]%") | Finding.title.like("[CI Scan]%") | Finding.title.like("[IaC]%"),
+            ).all()
+            findings_this_week = [
+                {"tool": f.evidence.get("tool") if isinstance(f.evidence, dict) else None,
+                 "check_id": f.title, "severity": f.severity.value, "recalibrated_severity": f.severity.value,
+                 "message": f.description or ""}
+                for f in recent
+            ]
+            digest = triage_service.generate_weekly_triage_digest(client.name, findings_this_week)
+            logger.info(f"[{client.name}] Weekly DevSecOps triage digest:\n{digest}")
+            notifications.notify_weekly_digest(client, digest)
+        return {"clients_processed": len(clients)}
     finally:
         db.close()

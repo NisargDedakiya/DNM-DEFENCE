@@ -152,6 +152,34 @@ export const listAiFeatures = (clientId) => api.get(`/clients/${clientId}/ai-sec
 export const runAiCveCheck = (clientId) => api.get(`/clients/${clientId}/ai-security/cve-check`).then(r => r.data)
 export const getAiPostureBrief = (clientId) => api.get(`/clients/${clientId}/ai-security/posture-brief`).then(r => r.data)
 
+// --- DSO-1/2/3/4 DevSecOps ---
+export const registerPipeline = (clientId, payload) => api.post(`/clients/${clientId}/devsecops/pipelines`, payload).then(r => r.data)
+export const listPipelines = (clientId) => api.get(`/clients/${clientId}/devsecops/pipelines`).then(r => r.data)
+export const deployGate = (clientId, pipelineId) => api.post(`/clients/${clientId}/devsecops/pipelines/${pipelineId}/deploy-gate`).then(r => r.data)
+export const pollPipeline = (clientId, pipelineId) => api.post(`/clients/${clientId}/devsecops/pipelines/${pipelineId}/poll`).then(r => r.data)
+
+export const triageSarif = (clientId, file) => {
+  const form = new FormData(); form.append('file', file)
+  return api.post(`/clients/${clientId}/devsecops/triage/sarif`, form).then(r => r.data)
+}
+export const triageTrivy = (clientId, file) => {
+  const form = new FormData(); form.append('file', file)
+  return api.post(`/clients/${clientId}/devsecops/triage/trivy`, form).then(r => r.data)
+}
+export const triageOwaspDc = (clientId, file) => {
+  const form = new FormData(); form.append('file', file)
+  return api.post(`/clients/${clientId}/devsecops/triage/owasp-dependency-check`, form).then(r => r.data)
+}
+
+export const getScorecard = (clientId) => api.get(`/clients/${clientId}/devsecops/scorecard`).then(r => r.data)
+export const getScorecardTrend = (clientId) => api.get(`/clients/${clientId}/devsecops/scorecard/trend`).then(r => r.data)
+export const snapshotScorecard = (clientId) => api.post(`/clients/${clientId}/devsecops/scorecard/snapshot`).then(r => r.data)
+
+export const runIacScan = (clientId, file) => {
+  const form = new FormData(); form.append('file', file)
+  return api.post(`/clients/${clientId}/devsecops/iac-scan`, form).then(r => r.data)
+}
+
 // Authenticated file downloads must go through axios (so the Bearer token
 // header is attached) rather than a plain <a href> -- this app has no
 // cookie-based session, so a bare anchor tag hitting an authenticated

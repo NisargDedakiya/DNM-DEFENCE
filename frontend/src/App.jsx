@@ -13,6 +13,7 @@ import SocialEngineering from './pages/SocialEngineering.jsx'
 import MobileSecurity from './pages/MobileSecurity.jsx'
 import Web3Security from './pages/Web3Security.jsx'
 import AISecurity from './pages/AISecurity.jsx'
+import DevSecOps from './pages/DevSecOps.jsx'
 import { getMe } from './api/client.js'
 
 export default function App() {
@@ -54,6 +55,7 @@ export default function App() {
           <Route path="/clients/:clientId/mobile-security" element={<MobileSecurity />} />
           <Route path="/clients/:clientId/web3-security" element={<Web3Security />} />
           <Route path="/clients/:clientId/ai-security" element={<AISecurity />} />
+          <Route path="/clients/:clientId/devsecops" element={<DevSecOps />} />
           <Route path="/clients/:clientId/reports" element={<Reports />} />
           <Route path="*" element={<Navigate to={homePath} replace />} />
         </Routes>
