@@ -26,6 +26,7 @@ nmap) run as subprocesses, Claude for AI-generated report content.
 - [Database migrations](#database-migrations)
 - [Project structure](#project-structure)
 - [Security notice](#security-notice)
+- [Expanded services (Social Engineering, Mobile, Web3, AI/ML, DevSecOps)](#whats-new--track1-expanded-services-5-new-services-16-tools)
 
 ---
 
@@ -90,6 +91,26 @@ brew install pango cairo gdk-pixbuf
 the `google-cloud-storage`, `google-api-python-client`, `azure-identity`,
 `azure-mgmt-*` Python packages — see the "Optional" section of
 `backend/requirements.txt`. AWS auditing (`boto3`) is always installed.
+
+**Expanded services** (Social Engineering, Mobile, Web3, AI/ML, DevSecOps —
+see [What's new — Track1 Expanded Services](#whats-new--track1-expanded-services-5-new-services-16-tools)):
+the primary tool for every one of the 16 new tools is a `pip install`
+already in `backend/requirements.txt` (`androguard`, `slither-analyzer`,
+`semgrep`, `web3`, `checkov`, `openai`, `bleach`, `jsonschema`) — nothing
+extra to install for the default path. A few *optional* enrichment tools
+degrade gracefully (log a warning, skip that signal) if you don't install
+them:
+
+| Tool | Used by | Install |
+|---|---|---|
+| `apktool` / `jadx` | MOB-1 (deeper Android decompilation) | [apktool](https://ibotpeaches.github.io/Apktool/install/) / [jadx](https://github.com/skylot/jadx#downloads) |
+| `trufflehog` | MOB-1 (deeper secret scanning) | `pip install trufflehog` or see [trufflesecurity/trufflehog](https://github.com/trufflesecurity/trufflehog) |
+| `mythril` (`myth`) | WEB3-1 (deeper Solidity symbolic execution) | `pip install mythril` (needs a solc toolchain) |
+| `kube-score` / `hadolint` / `kubesec` | DSO-4 (deeper Kubernetes/Dockerfile enrichment) | see each tool's own install docs |
+
+`echidna` (Solidity property-based fuzzing) is intentionally **not**
+auto-invoked — it needs contract-specific invariant test functions that
+can't be generically generated, so it stays a manual analyst step.
 
 ---
 
@@ -171,6 +192,13 @@ the full list with defaults). The essentials:
 | `SHODAN_API_KEY`, `CENSYS_API_ID`/`SECRET`, `HIBP_API_KEY`, `DEHASHED_API_KEY`, `GITHUB_TOKEN` | No | Optional threat-intel integrations — each one just skips its signal if unset |
 | `SENDGRID_API_KEY`, `SLACK_BOT_TOKEN` | No | Email/Slack alert delivery — alerts are still drafted and logged without these |
 | `FORCE_HTTPS`, `MFA_REQUIRED_FOR_STAFF` | No | Harden before any real deployment — see [Security notice](#security-notice) |
+| `OPENAI_API_KEY` | No | SE-3 Whisper call transcription — without it, supply a transcript manually |
+| `GOOGLE_CSE_API_KEY` / `GOOGLE_CSE_CX` | No | SE-1 OSINT Google dorking |
+| `TELEGRAM_BOT_TOKEN` | No | WEB3-3 on-chain alert channel (in addition to Slack) |
+| `ETHERSCAN_API_KEY` | No | WEB3-3 on-chain transaction/event history |
+| `JIRA_BASE_URL` / `JIRA_API_TOKEN` / `JIRA_EMAIL` | No | DSO-2 ticket creation |
+| `PUBLIC_API_BASE_URL` | No | Base URL used to build SE-2 phishing tracking-pixel/landing-page links — set to your real deployed API origin outside local dev |
+| `ONCHAIN_POLL_INTERVAL_MINUTES` | No | WEB3-3 poll interval, default 5 minutes |
 
 **Before deploying anywhere other than localhost**, at minimum: change
 `SECRET_KEY` to a long random value, set `ALLOWED_ORIGINS` to your real
@@ -268,6 +296,11 @@ frontend/
     api/client.js   the only file that talks to the backend — thin axios wrappers
     pages/          one component per portal page (Dashboard, Assets, Findings, ...)
     components/     shared UI pieces (SeverityBadge, RiskScoreRadial, ...)
+packages/
+  llm-output-sanitizer/   standalone pip-installable package (AI-3) — its own
+                          pyproject.toml, README, and test suite; not a
+                          dependency of the main platform, dogfooded via a
+                          lazy import in app/services/ai_reports.py
 ```
 
 Each module maps directly to a file in `app/services/` and a set of Celery
@@ -922,6 +955,161 @@ through a real browser, clicked through every changed page and the new
 upload/status-transition/expand interactions — confirmed everything
 renders and behaves correctly with zero console errors.
 
+## What's new — Track1 Expanded Services (5 new services, 16 tools)
+
+A second spec document (`Track1_Expanded_Services.docx`) defines 5 new
+service lines beyond the core platform above, 16 custom tools total. All
+16 are implemented, with three deliberate scope boundaries carried
+through every one of them the same way the first spec pass handled
+Tor/dark-web crawling — built where it's genuinely code, documented as
+an extension point where it isn't:
+
+- **Physical security testing and vishing calls stay supporting-tools
+  only.** Tailgating, badge cloning, dumpster diving, and USB-drop tests
+  need an in-person analyst; full vishing needs someone to actually dial
+  a phone under a signed consent form. Neither is code. What *is* code: a
+  checklist/engagement tracker for the physical assessment, and an
+  upload-and-analyze tool for a vishing call recording already made
+  under the engagement's own legal process.
+- **LinkedIn/social-media scraping is a documented extension point, not
+  built.** It violates LinkedIn's ToS and risks account/IP bans — OSINT-1
+  ships everything safe and free instead (WHOIS/DNS, email-pattern
+  analysis, Google dorking, GitHub OSINT, job-listing analysis, Claude
+  synthesis) and flags social data as needing a paid provider (Proxycurl,
+  PDL) or manual analyst input.
+- **AI-3's package is real but not published to PyPI** — that's the
+  project owner's own PyPI account/credentials, a real-world action this
+  codebase can't take on its own.
+
+### Service 1 — Social Engineering & Physical Security
+
+- **SE-1 OSINT Profiling Engine** (`services/osint.py`) — WHOIS + DNS
+  history, email-pattern guessing, Google dorking (Custom Search API,
+  key-gated), GitHub OSINT, job-listing tech-stack analysis, and a
+  Claude-synthesized attacker-perspective narrative. PDF export.
+- **SE-2 Phishing Campaign Builder & Tracker** (extends `api/phishing.py`) —
+  CSV target import, an HTML template builder with per-target
+  personalization, a tracking pixel + credential-harvest landing page
+  (`api/phishing_public.py`, unauthenticated by design), and a
+  Claude-drafted per-employee debrief. The landing page never stores a
+  submitted password — only the boolean fact that a submission happened,
+  same privacy stance as the original Phishing Simulation module.
+- **SE-3 Vishing Call Analyser** (`services/vishing.py`) — upload a
+  recording (Whisper transcription, key-gated) or paste a transcript
+  directly; Claude identifies social-engineering techniques used,
+  extracts any information disclosed, and assigns a risk rating.
+- **Physical security tracker** — plain engagement/checklist CRUD
+  (`api/physical_security.py`), seeded with one row per test type
+  (tailgating/badge cloning/dumpster diving/visitor access/clean
+  desk/USB drop) — a tracker, not automation.
+
+### Service 2 — Mobile App Security
+
+- **MOB-1 Static Analyser** (`services/mobile_sast.py`) — `androguard`
+  (pure Python, no JVM) parses APKs for manifest flags
+  (`allowBackup`/`debuggable`/cleartext traffic), exported components,
+  hardcoded secrets, and weak-crypto references; iOS `.ipa` parsing uses
+  only stdlib (`zipfile`+`plistlib`). Maps findings to a MASVS L1/L2
+  checklist with a compliance score. `apktool`/`jadx`/`trufflehog` are
+  optional deeper enrichment.
+- **MOB-2 API Traffic Interceptor** (`services/mobile_traffic.py`) —
+  imports a HAR file (the standard export from Burp Suite, Chrome
+  DevTools, mitmproxy, Charles) instead of integrating with Burp Suite
+  Pro's REST API directly; discovers endpoints, flags sensitive data in
+  transit, classifies authenticated vs. unauthenticated calls, and
+  generates an OpenAPI-lite doc.
+- **MOB-3 MASVS Compliance Report** — the client-facing side of the
+  Mobile App Security page: finding browser, MASVS score, and a
+  Claude-drafted executive summary per scan.
+
+### Service 3 — Blockchain & Web3 Security
+
+- **WEB3-1 Smart Contract Scanner** (`services/web3_scan.py`) —
+  `slither-analyzer` (direct Python API) + `semgrep` (a small bundled
+  Solidity ruleset at `app/rules/semgrep_solidity.yml`) as the two
+  always-available engines, deduped by line/rule-family, with Claude
+  false-positive annotation. `mythril` is optional deeper enrichment;
+  `echidna` fuzzing is a documented manual step (it needs contract-
+  specific invariant tests that can't be auto-generated).
+- **WEB3-2 Audit Report Generator** (`services/web3_report.py`) — a
+  Jinja2/WeasyPrint PDF in an audit-firm style plus a Markdown export,
+  with a "public mode" that redacts exploit detail on critical/high
+  findings for external sharing.
+- **WEB3-3 On-Chain Transaction Monitor** (`services/onchain_monitor.py`) —
+  polls a registered contract address on an interval (`ONCHAIN_POLL_INTERVAL_MINUTES`,
+  default 5 minutes — not block-by-block; see the Context note in the
+  code) via Etherscan, flagging large transfers, known admin-function
+  calls, and a naive same-block flash-loan-pattern heuristic. Alerts
+  route to Telegram and/or the client's existing Slack webhook.
+
+### Service 4 — AI/ML Model Security Testing
+
+- **AI-1 Prompt Injection Testing Suite** (`services/ai_security_testing.py`) —
+  a curated ~40-payload library across direct-injection/
+  indirect-injection/jailbreak/system-prompt-extraction categories,
+  delivered against a client-configured target endpoint, with Claude
+  classifying whether each attack actually succeeded (grounded in the
+  real response text). Successes sync into the normal Vulnerability
+  Tracker.
+- **AI-2 AI Security Posture Dashboard** (`services/ai_posture.py`) — an
+  AI/ML feature + library-stack inventory, CVE monitoring against that
+  stack (same free CIRCL API pattern as Module 1's CVE matching), and an
+  OWASP LLM Top 10 checklist that reuses the existing Compliance Center
+  (`framework=owasp_llm`) instead of a parallel checklist system.
+- **AI-3 LLM Output Sanitiser** (`packages/llm-output-sanitizer/`) — a
+  real, standalone, pip-installable package: XSS stripping, regex (+
+  optional Claude-semantic) PII detection, prompt-leakage heuristics,
+  and JSON-schema validation. Dogfooded as a wrapper around the report
+  generator's Claude output before it's rendered into HTML.
+
+### Service 5 — DevSecOps Pipeline & CI/CD Security
+
+- **DSO-1 Pipeline Security Orchestrator** (`services/devsecops.py`) —
+  deploys one of 5 pre-built GitHub Actions security-gate workflows
+  (Python/FastAPI, Node/Express, React, Go, Java/Spring — dependency
+  audit + SAST + secret scanning) to a client's repo via PyGithub, then
+  polls run results into Findings. GitLab/Jenkins are documented
+  extension points, not implemented.
+- **DSO-2 Security Finding Triage Assistant** (`services/triage.py`) —
+  parses SARIF/Trivy-JSON/OWASP-Dependency-Check-XML into a common
+  shape; Claude annotates false-positive verdicts, recalibrated
+  severity, and a concrete fix suggestion per finding. Jira ticket
+  creation via direct REST calls; a weekly cross-client digest task.
+- **DSO-3 Developer Security Scorecard** (`services/scorecard.py`) —
+  pipeline health score, vulnerabilities/secrets blocked, and mean
+  time-to-fix, aggregated from the existing Finding table (matched by
+  title prefix — `[Pipeline]`/`[CI Scan]`/`[IaC]` — the same source-
+  tagging convention `cspm.py` uses for cloud-provider tagging, not a
+  new column). Daily snapshots, a trend endpoint, PDF export.
+- **DSO-4 IaC Security Scanner** (`services/iac_scan.py`) — `checkov`
+  (CLI) as the primary Terraform/CloudFormation/Kubernetes/Dockerfile/
+  Compose scanner, `kube-score`/`hadolint`/`kubesec` as optional
+  enrichment, Claude fix suggestions, and PR-comment posting that reuses
+  DSO-1's GitHub client.
+
+**Verified, not just written**: 266/266 backend tests pass (up from 116
+at the end of the first spec pass), every new Alembic migration applies
+and downgrades cleanly (including a Postgres `ALTER TYPE ... ADD VALUE`
+for the new `owasp_llm` compliance framework enum value, guarded to only
+run on that dialect), the standalone `llm-output-sanitizer` package has
+its own green test suite, and the frontend builds clean with all 5 new
+pages wired into routing/navigation.
+
+A full local stack (Postgres + Redis + backend + Celery worker +
+frontend, no Docker daemon available in this environment, so run
+directly) plus a real Chromium browser pass caught one genuine
+**pre-existing** bug, present since the very first commit and unrelated
+to anything above: `Sidebar.jsx` read `useParams()` for `clientId`, but
+`<Sidebar>` is rendered as a sibling of `<Routes>` in `App.jsx`, not
+inside the matched route's subtree — so `useParams()` there always
+returned `{}`, meaning **the entire per-client sidebar section (every
+existing nav link — Overview, Assets, Findings, Compliance, Phishing,
+Reports — plus all 5 new Expanded Services links) never rendered on any
+client page, for anyone.** Fixed by reading `clientId` from
+`useLocation().pathname` instead (a Router-level context available
+everywhere, unlike `useParams()`), and confirmed with a real click-
+through: sidebar renders correctly and every link navigates.
+
 ## Roadmap
 
 Every module and feature from the Track 1 spec has a real implementation.
@@ -945,6 +1133,18 @@ The one exception is genuinely outside pure code (see above):
 7. ✅ Module 7 — Scheduling automation, health monitoring, real SLA
    escalation, fair per-client scheduling, pentest reminders, email/Slack
    delivery
+8. ✅ Service 1 (Expanded) — Social Engineering & Physical Security
+   (OSINT profiling, phishing builder/tracker, vishing analyser,
+   physical security checklist — see above for scope boundaries)
+9. ✅ Service 2 (Expanded) — Mobile App Security (Android/iOS static
+   analysis, HAR traffic import, MASVS compliance)
+10. ✅ Service 3 (Expanded) — Blockchain & Web3 Security (Slither/Semgrep
+    contract scanning, audit reports, on-chain monitoring)
+11. ✅ Service 4 (Expanded) — AI/ML Model Security (prompt injection
+    testing, AI security posture, standalone output-sanitizer package)
+12. ✅ Service 5 (Expanded) — DevSecOps Pipeline & CI/CD Security
+    (pipeline gates, scanner-output triage, developer scorecard, IaC
+    scanning)
 
 Each module maps directly to a file in `app/services/` and a set of Celery
 tasks in `app/workers/tasks.py` — follow the pattern already set by

@@ -85,6 +85,101 @@ export const uploadComplianceEvidence = (clientId, controlId, file) => {
   return api.post(`/clients/${clientId}/compliance/${controlId}/evidence`, form).then(r => r.data)
 }
 
+// --- SE-1/SE-2/SE-3 Social Engineering & Physical Security ---
+export const generateOsintProfile = (clientId, payload) => api.post(`/clients/${clientId}/osint/generate`, payload).then(r => r.data)
+export const listOsintProfiles = (clientId) => api.get(`/clients/${clientId}/osint`).then(r => r.data)
+
+export const importPhishingTargets = (clientId, campaignId, rows) =>
+  api.post(`/clients/${clientId}/phishing-campaigns/${campaignId}/targets/import`, rows).then(r => r.data)
+export const listPhishingTargets = (clientId, campaignId) =>
+  api.get(`/clients/${clientId}/phishing-campaigns/${campaignId}/targets`).then(r => r.data)
+export const setPhishingTemplate = (clientId, campaignId, payload) =>
+  api.patch(`/clients/${clientId}/phishing-campaigns/${campaignId}/template`, payload).then(r => r.data)
+export const sendPhishingCampaign = (clientId, campaignId) =>
+  api.post(`/clients/${clientId}/phishing-campaigns/${campaignId}/send`).then(r => r.data)
+export const getPhishingDebrief = (clientId, campaignId) =>
+  api.get(`/clients/${clientId}/phishing-campaigns/${campaignId}/debrief`).then(r => r.data)
+
+export const createVishingEngagement = (clientId, payload) =>
+  api.post(`/clients/${clientId}/vishing-engagements`, payload).then(r => r.data)
+export const listVishingEngagements = (clientId) => api.get(`/clients/${clientId}/vishing-engagements`).then(r => r.data)
+export const uploadVishingRecording = (clientId, engagementId, file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/clients/${clientId}/vishing-engagements/${engagementId}/recording`, form).then(r => r.data)
+}
+export const analyzeVishingEngagement = (clientId, engagementId) =>
+  api.post(`/clients/${clientId}/vishing-engagements/${engagementId}/analyze`).then(r => r.data)
+
+export const createPhysicalAssessment = (clientId, payload) =>
+  api.post(`/clients/${clientId}/physical-security`, payload).then(r => r.data)
+export const listPhysicalAssessments = (clientId) => api.get(`/clients/${clientId}/physical-security`).then(r => r.data)
+export const updatePhysicalAssessment = (clientId, assessmentId, payload) =>
+  api.patch(`/clients/${clientId}/physical-security/${assessmentId}`, payload).then(r => r.data)
+export const updatePhysicalChecklistItem = (clientId, assessmentId, itemId, payload) =>
+  api.patch(`/clients/${clientId}/physical-security/${assessmentId}/checklist/${itemId}`, payload).then(r => r.data)
+
+// --- MOB-1/MOB-2/MOB-3 Mobile App Security ---
+export const uploadMobileApp = (clientId, file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/clients/${clientId}/mobile-scans`, form).then(r => r.data)
+}
+export const listMobileScans = (clientId) => api.get(`/clients/${clientId}/mobile-scans`).then(r => r.data)
+export const analyzeMobileScan = (clientId, scanId) => api.post(`/clients/${clientId}/mobile-scans/${scanId}/analyze`).then(r => r.data)
+export const importMobileTraffic = (clientId, scanId, file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/clients/${clientId}/mobile-scans/${scanId}/traffic-import`, form).then(r => r.data)
+}
+export const listMobileTrafficImports = (clientId, scanId) =>
+  api.get(`/clients/${clientId}/mobile-scans/${scanId}/traffic-imports`).then(r => r.data)
+
+// --- WEB3-1/WEB3-2/WEB3-3 Blockchain & Web3 Security ---
+export const createContractAudit = (clientId, payload) => api.post(`/clients/${clientId}/web3/contract-audits`, payload).then(r => r.data)
+export const listContractAudits = (clientId) => api.get(`/clients/${clientId}/web3/contract-audits`).then(r => r.data)
+export const createOnchainMonitor = (clientId, payload) => api.post(`/clients/${clientId}/web3/onchain-monitors`, payload).then(r => r.data)
+export const listOnchainMonitors = (clientId) => api.get(`/clients/${clientId}/web3/onchain-monitors`).then(r => r.data)
+export const updateOnchainMonitor = (clientId, monitorId, isActive) =>
+  api.patch(`/clients/${clientId}/web3/onchain-monitors/${monitorId}`, null, { params: { is_active: isActive } }).then(r => r.data)
+
+// --- AI-1/AI-2 AI/ML Security ---
+export const createPromptInjectionTest = (clientId, payload) =>
+  api.post(`/clients/${clientId}/ai-security/prompt-injection-tests`, payload).then(r => r.data)
+export const listPromptInjectionTests = (clientId) => api.get(`/clients/${clientId}/ai-security/prompt-injection-tests`).then(r => r.data)
+export const createAiFeature = (clientId, payload) => api.post(`/clients/${clientId}/ai-security/feature-inventory`, payload).then(r => r.data)
+export const listAiFeatures = (clientId) => api.get(`/clients/${clientId}/ai-security/feature-inventory`).then(r => r.data)
+export const runAiCveCheck = (clientId) => api.get(`/clients/${clientId}/ai-security/cve-check`).then(r => r.data)
+export const getAiPostureBrief = (clientId) => api.get(`/clients/${clientId}/ai-security/posture-brief`).then(r => r.data)
+
+// --- DSO-1/2/3/4 DevSecOps ---
+export const registerPipeline = (clientId, payload) => api.post(`/clients/${clientId}/devsecops/pipelines`, payload).then(r => r.data)
+export const listPipelines = (clientId) => api.get(`/clients/${clientId}/devsecops/pipelines`).then(r => r.data)
+export const deployGate = (clientId, pipelineId) => api.post(`/clients/${clientId}/devsecops/pipelines/${pipelineId}/deploy-gate`).then(r => r.data)
+export const pollPipeline = (clientId, pipelineId) => api.post(`/clients/${clientId}/devsecops/pipelines/${pipelineId}/poll`).then(r => r.data)
+
+export const triageSarif = (clientId, file) => {
+  const form = new FormData(); form.append('file', file)
+  return api.post(`/clients/${clientId}/devsecops/triage/sarif`, form).then(r => r.data)
+}
+export const triageTrivy = (clientId, file) => {
+  const form = new FormData(); form.append('file', file)
+  return api.post(`/clients/${clientId}/devsecops/triage/trivy`, form).then(r => r.data)
+}
+export const triageOwaspDc = (clientId, file) => {
+  const form = new FormData(); form.append('file', file)
+  return api.post(`/clients/${clientId}/devsecops/triage/owasp-dependency-check`, form).then(r => r.data)
+}
+
+export const getScorecard = (clientId) => api.get(`/clients/${clientId}/devsecops/scorecard`).then(r => r.data)
+export const getScorecardTrend = (clientId) => api.get(`/clients/${clientId}/devsecops/scorecard/trend`).then(r => r.data)
+export const snapshotScorecard = (clientId) => api.post(`/clients/${clientId}/devsecops/scorecard/snapshot`).then(r => r.data)
+
+export const runIacScan = (clientId, file) => {
+  const form = new FormData(); form.append('file', file)
+  return api.post(`/clients/${clientId}/devsecops/iac-scan`, form).then(r => r.data)
+}
+
 // Authenticated file downloads must go through axios (so the Bearer token
 // header is attached) rather than a plain <a href> -- this app has no
 // cookie-based session, so a bare anchor tag hitting an authenticated

@@ -1,4 +1,4 @@
-import { NavLink, useParams } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 
 const navItem = ({ isActive }) =>
   `block px-3 py-2 rounded-md text-sm transition-colors ${
@@ -6,7 +6,13 @@ const navItem = ({ isActive }) =>
   }`
 
 export default function Sidebar({ user, onLogout }) {
-  const { clientId } = useParams()
+  // Sidebar is rendered as a sibling of <Routes> in App.jsx, not inside the
+  // matched route's subtree, so useParams() (which reads from Routes'
+  // RouteContext) always returns {} here. useLocation() is a Router-level
+  // context available everywhere, so the client id is parsed from the
+  // pathname directly instead.
+  const location = useLocation()
+  const clientId = location.pathname.match(/^\/clients\/([^/]+)/)?.[1]
   const isStaff = user?.role === 'admin' || user?.role === 'analyst'
 
   return (
@@ -31,6 +37,13 @@ export default function Sidebar({ user, onLogout }) {
             <NavLink to={`/clients/${clientId}/compliance`} className={navItem}>Compliance Center</NavLink>
             <NavLink to={`/clients/${clientId}/phishing`} className={navItem}>Phishing Simulations</NavLink>
             <NavLink to={`/clients/${clientId}/reports`} className={navItem}>Report Library</NavLink>
+
+            <div className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-widest text-muted font-mono">Expanded Services</div>
+            <NavLink to={`/clients/${clientId}/social-engineering`} className={navItem}>Social Engineering</NavLink>
+            <NavLink to={`/clients/${clientId}/mobile-security`} className={navItem}>Mobile App Security</NavLink>
+            <NavLink to={`/clients/${clientId}/web3-security`} className={navItem}>Web3 &amp; Blockchain</NavLink>
+            <NavLink to={`/clients/${clientId}/ai-security`} className={navItem}>AI/ML Security</NavLink>
+            <NavLink to={`/clients/${clientId}/devsecops`} className={navItem}>DevSecOps</NavLink>
           </>
         )}
       </nav>

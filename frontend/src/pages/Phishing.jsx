@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   listPhishingCampaigns, createPhishingCampaign, startPhishingCampaign, getPhishingTrend,
   getPhishingResults, getTrainingCompletion,
+  importPhishingTargets, listPhishingTargets, setPhishingTemplate, sendPhishingCampaign, getPhishingDebrief,
 } from '../api/client.js'
 
 const rate = (n, total) => (total ? Math.round((100 * n) / total) : 0)
@@ -131,6 +132,11 @@ function Metric({ label, value, tone }) {
 }
 
 function CampaignDetail({ clientId, campaignId }) {
+  const qc = useQueryClient()
+  const [csvText, setCsvText] = useState('name,role,email')
+  const [templateHtml, setTemplateHtml] = useState('')
+  const [debrief, setDebrief] = useState('')
+
   const { data: results, isLoading: resultsLoading } = useQuery({
     queryKey: ['phishing-results', clientId, campaignId],
     queryFn: () => getPhishingResults(clientId, campaignId),
@@ -139,9 +145,61 @@ function CampaignDetail({ clientId, campaignId }) {
     queryKey: ['training-completion', clientId, campaignId],
     queryFn: () => getTrainingCompletion(clientId, campaignId),
   })
+  const { data: targets } = useQuery({
+    queryKey: ['phishing-targets', clientId, campaignId],
+    queryFn: () => listPhishingTargets(clientId, campaignId),
+  })
+
+  const invalidateTargets = () => qc.invalidateQueries({ queryKey: ['phishing-targets', clientId, campaignId] })
+  const importTargets = useMutation({
+    mutationFn: () => {
+      const rows = csvText.split('\n').slice(1).filter(Boolean).map((line) => {
+        const [name, role, email] = line.split(',').map((s) => s.trim())
+        return { name: name || null, role: role || null, email }
+      }).filter((r) => r.email)
+      return importPhishingTargets(clientId, campaignId, rows)
+    },
+    onSuccess: invalidateTargets,
+  })
+  const saveTemplate = useMutation({ mutationFn: () => setPhishingTemplate(clientId, campaignId, { template_html: templateHtml }) })
+  const send = useMutation({ mutationFn: () => sendPhishingCampaign(clientId, campaignId), onSuccess: invalidateTargets })
+  const fetchDebrief = useMutation({ mutationFn: () => getPhishingDebrief(clientId, campaignId), onSuccess: (d) => setDebrief(d.debrief) })
 
   return (
     <div className="mt-4 pt-4 border-t border-border/60">
+      <div className="mb-5 grid grid-cols-2 gap-4">
+        <div>
+          <h4 className="text-[10px] text-muted uppercase font-mono mb-1">Import targets (SE-2) — CSV: name,role,email</h4>
+          <textarea value={csvText} onChange={(e) => setCsvText(e.target.value)} rows={4}
+            className="w-full bg-panel2 border border-border rounded px-2 py-1.5 text-xs font-mono outline-none focus:border-signal" />
+          <button onClick={() => importTargets.mutate()} disabled={importTargets.isPending}
+            className="mt-1 text-xs px-3 py-1.5 rounded border border-border hover:border-signal/50 font-mono">
+            Import ({targets?.length ?? 0} imported so far)
+          </button>
+        </div>
+        <div>
+          <h4 className="text-[10px] text-muted uppercase font-mono mb-1">
+            Template — use {'{target_name}'}, {'{target_role}'}, {'{tracking_pixel}'}, {'{tracking_link}'}
+          </h4>
+          <textarea value={templateHtml} onChange={(e) => setTemplateHtml(e.target.value)} rows={4}
+            placeholder="<p>Hi {target_name}, ...</p><img src='{tracking_pixel}'><a href='{tracking_link}'>Reset password</a>"
+            className="w-full bg-panel2 border border-border rounded px-2 py-1.5 text-xs font-mono outline-none focus:border-signal" />
+          <div className="flex gap-2 mt-1">
+            <button onClick={() => saveTemplate.mutate()} disabled={saveTemplate.isPending}
+              className="text-xs px-3 py-1.5 rounded border border-border hover:border-signal/50 font-mono">Save template</button>
+            <button onClick={() => send.mutate()} disabled={send.isPending}
+              className="text-xs px-3 py-1.5 rounded bg-signal text-base font-mono">Send campaign</button>
+          </div>
+          {send.data && <p className="text-[10px] text-muted mt-1 font-mono">Sent {send.data.sent}/{send.data.total_targets}</p>}
+        </div>
+      </div>
+
+      <button onClick={() => fetchDebrief.mutate()} disabled={fetchDebrief.isPending}
+        className="text-xs text-signal hover:underline mb-3">
+        Generate employee debrief (AI)
+      </button>
+      {debrief && <p className="text-xs bg-panel2 rounded-md p-3 mb-4 whitespace-pre-wrap">{debrief}</p>}
+
       {training && (
         <p className="text-xs text-muted mb-3">
           Training completion: <span className="text-ink font-mono">{training.percent_completed}%</span>

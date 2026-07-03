@@ -10,6 +10,10 @@ __pycache__/
 *.pyc
 /backend/.pytest_cache/
 /backend/.mypy_cache/
+*.egg-info/
+/backend/.coverage
+/backend/coverage.xml
+/backend/tests/_pytest_session.db
 
 # Node dependencies and build folders
 /frontend/node_modules/

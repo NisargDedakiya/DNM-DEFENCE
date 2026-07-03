@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-output-sanitizer"
+version = "0.1.0"
+description = "Sanitize and validate LLM output before it reaches a browser, database, or downstream system: XSS stripping, PII detection, prompt-leakage heuristics, and JSON-schema validation."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Track 1 Platform" }]
+keywords = ["llm", "security", "sanitization", "owasp-llm-top-10", "pii"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Security",
+]
+dependencies = [
+    "bleach>=6.1.0",
+    "jsonschema>=4.23.0",
+]
+
+[project.optional-dependencies]
+semantic = ["anthropic>=0.39.0"]
+test = ["pytest>=7.4.4"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

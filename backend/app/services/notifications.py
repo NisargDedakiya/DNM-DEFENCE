@@ -59,6 +59,22 @@ def send_slack_message(webhook_url: str, text: str, timeout: int = 15) -> bool:
         return False
 
 
+def send_telegram_message(chat_id: str, text: str, timeout: int = 15) -> bool:
+    """WEB3-3 on-chain monitor alert channel. Requires TELEGRAM_BOT_TOKEN; chat_id is per-recipient (a client-configured chat/channel ID), not platform-wide."""
+    if not settings.TELEGRAM_BOT_TOKEN or not chat_id:
+        return False
+    url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
+    try:
+        resp = httpx.post(url, json={"chat_id": chat_id, "text": text}, timeout=timeout)
+        if resp.status_code >= 300:
+            logger.error(f"Telegram send failed ({resp.status_code}): {resp.text}")
+            return False
+        return True
+    except httpx.RequestError as e:
+        logger.error(f"Telegram request failed: {e}")
+        return False
+
+
 def notify_client(client: Client, subject: str, body_text: str) -> dict:
     """Sends via every channel the client has configured. Returns per-channel success flags."""
     results = {"email": False, "slack": False}

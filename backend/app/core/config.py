@@ -70,5 +70,17 @@ class Settings(BaseSettings):
     PORT_SCAN_INTERVAL_HOURS: int = 168  # weekly
     MAX_CONCURRENT_SCANS_PER_CLIENT: int = 2
 
+    # Expanded services — all optional, all degrade gracefully if unset
+    OPENAI_API_KEY: str = ""            # SE-3 Whisper call transcription
+    GOOGLE_CSE_API_KEY: str = ""        # SE-1 OSINT Google dorking (Custom Search API)
+    GOOGLE_CSE_CX: str = ""             # SE-1 Custom Search Engine ID
+    TELEGRAM_BOT_TOKEN: str = ""        # WEB3-3 on-chain alert channel
+    ETHERSCAN_API_KEY: str = ""         # WEB3-3 transaction/event history
+    JIRA_BASE_URL: str = ""             # DSO-2 ticket creation, e.g. https://yourorg.atlassian.net
+    JIRA_API_TOKEN: str = ""
+    JIRA_EMAIL: str = ""
+    ONCHAIN_POLL_INTERVAL_MINUTES: int = 5  # WEB3-3 — interval polling, not block-by-block (see README)
+    PUBLIC_API_BASE_URL: str = "http://localhost:8000"  # SE-2 — used to build phishing tracking-pixel/landing-page links
+
 
 settings = Settings()

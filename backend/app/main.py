@@ -16,7 +16,10 @@ from app.core.database import Base, engine
 from app.core.security_middleware import limiter, SecurityHeadersMiddleware
 from app.core.audit import log_action as core_log_action
 from app.core.database import SessionLocal
-from app.api import clients, assets, findings, cloud, reports, compliance, phishing, pentest, auth, audit
+from app.api import (
+    clients, assets, findings, cloud, reports, compliance, phishing, phishing_public, pentest, auth, audit,
+    osint, vishing, physical_security, mobile_security, web3_security, ai_security, devsecops,
+)
 
 # Import models so Base.metadata knows about every table before create_all
 from app.models import models  # noqa: F401
@@ -80,6 +83,13 @@ TAGS_METADATA = [
     {"name": "phishing", "description": "Phishing simulation campaign tracking and awareness trend reporting."},
     {"name": "pentest", "description": "Recurring or custom penetration test scheduling with automated reminders."},
     {"name": "audit", "description": "Read-only audit trail of API mutations. Admin-only."},
+    {"name": "osint", "description": "SE-1 OSINT reconnaissance profiling (WHOIS/DNS/email-patterns/dorking/GitHub/job-listings)."},
+    {"name": "vishing", "description": "SE-3 vishing call recording upload, transcription, and technique/risk analysis."},
+    {"name": "physical-security", "description": "Physical security assessment checklist tracking (human-run, not automated)."},
+    {"name": "mobile-security", "description": "MOB-1/2/3 mobile app static analysis, HAR traffic import, and MASVS compliance reporting."},
+    {"name": "web3-security", "description": "WEB3-1/2/3 smart contract scanning, audit report generation, and on-chain transaction monitoring."},
+    {"name": "ai-security", "description": "AI-1/2 prompt injection testing and AI security posture (library CVEs + OWASP LLM Top 10)."},
+    {"name": "devsecops", "description": "DSO-1/2/3/4 pipeline gate deployment, scanner-output triage, developer scorecard, and IaC scanning."},
 ]
 
 app = FastAPI(
@@ -193,9 +203,17 @@ app.include_router(reports.router)
 app.include_router(reports.share_router)
 app.include_router(compliance.router)
 app.include_router(phishing.router)
+app.include_router(phishing_public.router)
 app.include_router(pentest.router)
 app.include_router(auth.router)
 app.include_router(audit.router)
+app.include_router(osint.router)
+app.include_router(vishing.router)
+app.include_router(physical_security.router)
+app.include_router(mobile_security.router)
+app.include_router(web3_security.router)
+app.include_router(ai_security.router)
+app.include_router(devsecops.router)
 
 if settings.ENABLE_METRICS:
     # Exposes GET /metrics in Prometheus text format: request counts, latency

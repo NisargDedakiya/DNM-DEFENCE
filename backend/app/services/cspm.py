@@ -76,7 +76,7 @@ def audit_s3_buckets(session: boto3.Session) -> list[dict]:
             pass  # no bucket policy is normal, not an error
 
         try:
-            enc = s3.get_bucket_encryption(Bucket=name)
+            s3.get_bucket_encryption(Bucket=name)
         except ClientError as e:
             if e.response["Error"]["Code"] == "ServerSideEncryptionConfigurationNotFoundError":
                 findings.append({
