@@ -11,7 +11,6 @@ Audit logging. Two ways this gets written:
 Both write to the same table so a single audit trail query covers
 everything.
 """
-import json
 from datetime import datetime
 
 from sqlalchemy.orm import Session

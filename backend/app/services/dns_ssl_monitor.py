@@ -8,7 +8,7 @@ import logging
 import socket
 import ssl
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
