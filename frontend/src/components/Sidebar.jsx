@@ -46,6 +46,13 @@ export default function Sidebar({ user, onLogout }) {
             <NavLink to={`/clients/${clientId}/devsecops`} className={navItem}>DevSecOps</NavLink>
           </>
         )}
+
+        {isStaff && clientId && (
+          <>
+            <div className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-widest text-muted font-mono">Advanced Services</div>
+            <NavLink to={`/clients/${clientId}/red-team`} className={navItem}>Red Team Operations</NavLink>
+          </>
+        )}
       </nav>
 
       <div className="px-5 py-4 border-t border-border">

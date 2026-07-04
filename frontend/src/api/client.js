@@ -184,6 +184,32 @@ export const runIacScan = (clientId, file) => {
   return api.post(`/clients/${clientId}/devsecops/iac-scan`, form).then(r => r.data)
 }
 
+// --- RT-1 Red Team Operations (analyst/admin only) ---
+export const listRedTeamOps = (clientId) => api.get(`/clients/${clientId}/red-team/operations`).then(r => r.data)
+export const createRedTeamOp = (clientId, payload) => api.post(`/clients/${clientId}/red-team/operations`, payload).then(r => r.data)
+export const getRedTeamOp = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}`).then(r => r.data)
+export const updateRedTeamOp = (clientId, opId, payload) => api.patch(`/clients/${clientId}/red-team/operations/${opId}`, payload).then(r => r.data)
+export const deleteRedTeamOp = (clientId, opId) => api.delete(`/clients/${clientId}/red-team/operations/${opId}`).then(r => r.data)
+
+export const listRedTeamTimeline = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}/timeline`).then(r => r.data)
+export const addRedTeamTimelineEntry = (clientId, opId, payload) => api.post(`/clients/${clientId}/red-team/operations/${opId}/timeline`, payload).then(r => r.data)
+export const uploadRedTeamEvidence = (clientId, opId, entryId, file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/clients/${clientId}/red-team/operations/${opId}/timeline/${entryId}/evidence`, form).then(r => r.data)
+}
+
+export const listRedTeamImplants = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}/implants`).then(r => r.data)
+export const addRedTeamImplant = (clientId, opId, payload) => api.post(`/clients/${clientId}/red-team/operations/${opId}/implants`, payload).then(r => r.data)
+export const updateRedTeamImplant = (clientId, opId, implantId, payload) => api.patch(`/clients/${clientId}/red-team/operations/${opId}/implants/${implantId}`, payload).then(r => r.data)
+
+export const listRedTeamInfra = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}/infrastructure`).then(r => r.data)
+export const addRedTeamInfra = (clientId, opId, payload) => api.post(`/clients/${clientId}/red-team/operations/${opId}/infrastructure`, payload).then(r => r.data)
+export const checkRedTeamInfraExposure = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}/infrastructure/exposure-check`).then(r => r.data)
+
+export const getRedTeamHeatmap = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}/heatmap`).then(r => r.data)
+export const getRedTeamNarrative = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}/narrative`).then(r => r.data)
+
 // Authenticated file downloads must go through axios (so the Bearer token
 // header is attached) rather than a plain <a href> -- this app has no
 // cookie-based session, so a bare anchor tag hitting an authenticated

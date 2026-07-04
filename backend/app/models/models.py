@@ -682,3 +682,130 @@ class DeveloperScorecardSnapshot(Base):
     metrics = Column(JSON, default=dict)  # {"pipeline_health_score", "vulnerabilities_blocked", "secrets_blocked", "mttr_hours", ...}
 
     client = relationship("Client")
+
+
+# --- Track1_Advanced_Services.docx — shared: TH-1 SIEM/EDR credential storage ---
+
+class SiemProvider(str, enum.Enum):
+    elastic = "elastic"
+    splunk = "splunk"
+    crowdstrike = "crowdstrike"
+    sentinelone = "sentinelone"
+
+
+class SiemConnection(Base):
+    """TH-1 — a client's own SIEM/EDR API credentials, same shape and Fernet-encryption pattern as CloudAccount."""
+    __tablename__ = "siem_connections"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    provider = Column(Enum(SiemProvider), nullable=False)
+    base_url = Column(String(500), nullable=True)
+    encrypted_credentials = Column(Text, nullable=False)  # Fernet-encrypted, read-only query creds
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+# --- Track1_Advanced_Services.docx — RT-1 Red Team Operations ---
+# Tracking/logging tool only: this platform does not run a C2 server or execute
+# attacks. A human red teamer operates real tooling (Cobalt Strike, Havoc, etc.)
+# outside this platform and logs what they did here -- same model as Ghostwriter/RedELK.
+
+class RedTeamOperationStatus(str, enum.Enum):
+    planning = "planning"
+    active = "active"
+    complete = "complete"
+
+
+class RedTeamTimelinePhase(str, enum.Enum):
+    recon = "recon"
+    initial_access = "initial_access"
+    lateral_movement = "lateral_movement"
+    persistence = "persistence"
+    exfiltration = "exfiltration"
+    objective = "objective"
+
+
+class RedTeamDetectionStatus(str, enum.Enum):
+    detected = "detected"
+    not_detected = "not_detected"
+    partial = "partial"
+
+
+class RedTeamInfraType(str, enum.Enum):
+    c2_server = "c2_server"
+    phishing_domain = "phishing_domain"
+    payload_host = "payload_host"
+    redirector = "redirector"
+
+
+class RedTeamOperation(Base):
+    """RT-1 — one row per red team engagement. Analyst-only workspace, never client-visible."""
+    __tablename__ = "red_team_operations"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    objective = Column(Text, nullable=True)
+    threat_actor = Column(String(255), nullable=True)  # emulated actor/profile, e.g. "FIN7"
+    status = Column(Enum(RedTeamOperationStatus), default=RedTeamOperationStatus.planning)
+    start_date = Column(DateTime, nullable=True)
+    end_date = Column(DateTime, nullable=True)
+    roe_signed = Column(Boolean, default=False)  # Rules of Engagement signed off
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+class RedTeamTimelineEntry(Base):
+    """RT-1 — one row per logged action during an operation. This is the actual C2/attack activity log, entered by the operator after the fact."""
+    __tablename__ = "red_team_timeline_entries"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    operation_id = Column(UUID(as_uuid=False), ForeignKey("red_team_operations.id"), nullable=False, index=True)
+    timestamp = Column(DateTime, nullable=False)
+    phase = Column(Enum(RedTeamTimelinePhase), nullable=False)
+    action = Column(Text, nullable=False)
+    host = Column(String(255), nullable=True)
+    user_context = Column(String(255), nullable=True)
+    tool_used = Column(String(255), nullable=True)
+    outcome = Column(Text, nullable=True)
+    detected = Column(Enum(RedTeamDetectionStatus), default=RedTeamDetectionStatus.not_detected)
+    attack_technique_id = Column(String(20), nullable=True)  # free text, e.g. "T1566.001"
+    evidence_path = Column(String(500), nullable=True)  # UUID-derived storage filename
+
+    operation = relationship("RedTeamOperation")
+
+
+class RedTeamImplant(Base):
+    """RT-1 — tracked implant/beacon, mirroring what the real C2 tool (outside this platform) reports."""
+    __tablename__ = "red_team_implants"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    operation_id = Column(UUID(as_uuid=False), ForeignKey("red_team_operations.id"), nullable=False, index=True)
+    host = Column(String(255), nullable=False)
+    ip_address = Column(String(64), nullable=True)
+    username = Column(String(255), nullable=True)
+    implant_type = Column(String(100), nullable=True)  # e.g. "beacon", "havoc-demon"
+    persistence = Column(String(255), nullable=True)  # persistence mechanism description
+    checkin_freq_seconds = Column(Integer, nullable=True)
+    is_active = Column(Boolean, default=True)
+    deployed_at = Column(DateTime, default=datetime.utcnow)
+
+    operation = relationship("RedTeamOperation")
+
+
+class RedTeamInfrastructure(Base):
+    """RT-1 — attacker-owned infra tracker (C2 servers, phishing domains, redirectors, payload hosts)."""
+    __tablename__ = "red_team_infrastructure"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    operation_id = Column(UUID(as_uuid=False), ForeignKey("red_team_operations.id"), nullable=False, index=True)
+    infra_type = Column(Enum(RedTeamInfraType), nullable=False)
+    identifier = Column(String(255), nullable=False)  # IP, domain, or hostname
+    provider = Column(String(255), nullable=True)  # e.g. "DigitalOcean", "Namecheap"
+    notes = Column(Text, nullable=True)
+
+    operation = relationship("RedTeamOperation")

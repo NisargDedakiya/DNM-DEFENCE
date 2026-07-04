@@ -50,3 +50,7 @@ checkov>=3.2.0              # DSO-4 IaC scanning (Terraform/CloudFormation/K8s/H
 openai>=1.40.0              # SE-3 Whisper transcription (key-gated, optional)
 bleach>=6.1.0                # AI-3 sanitizer XSS stripping
 jsonschema>=4.23.0           # AI-3 sanitizer schema validation
+
+# Advanced services (Track1_Advanced_Services.docx) — Red Team/Zero Day/DFIR/IoT/Threat Hunting
+python-evtx>=0.8.1           # DFIR-2 Windows EVTX log parsing
+binwalk>=2.1.0               # IOT-1 firmware extraction (checksec/AFL++ stay optional subprocess tools)

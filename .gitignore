@@ -4,6 +4,7 @@
 /backend/.env
 /backend/generated_reports/
 /backend/data/
+/backend/dump.rdb
 
 # Python compilation and testing caches
 __pycache__/
