@@ -269,6 +269,15 @@ export const uploadDfirLogForAnalysis = (clientId, caseId, file, logType) => {
   return api.post(`/clients/${clientId}/dfir/cases/${caseId}/log-analysis/upload`, form).then(r => r.data)
 }
 
+// --- IOT-1 Hardware & IoT Firmware Analyzer (analyst/admin only) ---
+export const listFirmwareScans = (clientId) => api.get(`/clients/${clientId}/firmware-scans`).then(r => r.data)
+export const uploadFirmware = (clientId, file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/clients/${clientId}/firmware-scans`, form).then(r => r.data)
+}
+export const analyzeFirmwareScan = (clientId, scanId) => api.post(`/clients/${clientId}/firmware-scans/${scanId}/analyze`).then(r => r.data)
+
 // Authenticated file downloads must go through axios (so the Bearer token
 // header is attached) rather than a plain <a href> -- this app has no
 // cookie-based session, so a bare anchor tag hitting an authenticated

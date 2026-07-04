@@ -53,6 +53,7 @@ export default function Sidebar({ user, onLogout }) {
             <div className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-widest text-muted font-mono">Advanced Services</div>
             <NavLink to={`/clients/${clientId}/red-team`} className={navItem}>Red Team Operations</NavLink>
             <NavLink to={`/clients/${clientId}/dfir`} className={navItem}>DFIR</NavLink>
+            <NavLink to={`/clients/${clientId}/hardware-iot`} className={navItem}>Hardware &amp; IoT Security</NavLink>
           </>
         )}
       </nav>

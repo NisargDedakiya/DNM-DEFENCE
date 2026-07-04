@@ -1015,3 +1015,27 @@ class DfirLogAnalysisJob(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     case = relationship("DfirCase")
+
+
+class FirmwareScanStatus(str, enum.Enum):
+    queued = "queued"
+    completed = "completed"
+    failed = "failed"
+
+
+class FirmwareAnalysisJob(Base):
+    """IOT-1 — one row per uploaded firmware image, same shape/pattern as MobileAppScan."""
+    __tablename__ = "firmware_analysis_jobs"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    original_filename = Column(String(255), nullable=True)
+    file_path = Column(String(500), nullable=True)
+    status = Column(Enum(FirmwareScanStatus), default=FirmwareScanStatus.queued)
+    component_summary = Column(JSON, default=dict)  # {"BusyBox": "1.31.1", "OpenSSL": "1.1.1k", ...}
+    findings = Column(JSON, default=dict)  # {"components": {...}, "secrets": [...], "cves": [...], "extracted": bool}
+    executive_summary = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
