@@ -234,6 +234,41 @@ export const listFuzzingJobs = (targetId) => api.get(`/zero-day/targets/${target
 export const createFuzzingJob = (targetId, payload) => api.post(`/zero-day/targets/${targetId}/fuzzing-jobs`, payload).then(r => r.data)
 export const updateFuzzingJob = (targetId, jobId, payload) => api.patch(`/zero-day/targets/${targetId}/fuzzing-jobs/${jobId}`, payload).then(r => r.data)
 
+// --- DFIR-1/DFIR-2 Incident Response Case Manager & Log Analyzer (analyst/admin only) ---
+export const listDfirCases = (clientId) => api.get(`/clients/${clientId}/dfir/cases`).then(r => r.data)
+export const createDfirCase = (clientId, payload) => api.post(`/clients/${clientId}/dfir/cases`, payload).then(r => r.data)
+export const updateDfirCase = (clientId, caseId, payload) => api.patch(`/clients/${clientId}/dfir/cases/${caseId}`, payload).then(r => r.data)
+
+export const listDfirEvidence = (clientId, caseId) => api.get(`/clients/${clientId}/dfir/cases/${caseId}/evidence`).then(r => r.data)
+export const uploadDfirEvidence = (clientId, caseId, file, meta) => {
+  const form = new FormData()
+  form.append('file', file)
+  Object.entries(meta).forEach(([k, v]) => form.append(k, v))
+  return api.post(`/clients/${clientId}/dfir/cases/${caseId}/evidence`, form).then(r => r.data)
+}
+export const addDfirCustodyEntry = (clientId, caseId, evidenceId, payload) =>
+  api.post(`/clients/${clientId}/dfir/cases/${caseId}/evidence/${evidenceId}/custody`, payload).then(r => r.data)
+
+export const listDfirIocs = (clientId, caseId) => api.get(`/clients/${clientId}/dfir/cases/${caseId}/iocs`).then(r => r.data)
+export const addDfirIoc = (clientId, caseId, payload) => api.post(`/clients/${clientId}/dfir/cases/${caseId}/iocs`, payload).then(r => r.data)
+
+export const listDfirTimeline = (clientId, caseId) => api.get(`/clients/${clientId}/dfir/cases/${caseId}/timeline`).then(r => r.data)
+export const addDfirTimelineEntry = (clientId, caseId, payload) => api.post(`/clients/${clientId}/dfir/cases/${caseId}/timeline`, payload).then(r => r.data)
+
+export const getDfirExecutiveReport = (clientId, caseId) => api.get(`/clients/${clientId}/dfir/cases/${caseId}/reports/executive`).then(r => r.data)
+export const getDfirTechnicalReport = (clientId, caseId) => api.get(`/clients/${clientId}/dfir/cases/${caseId}/reports/technical`).then(r => r.data)
+
+export const getDfirRetainer = (clientId) => api.get(`/clients/${clientId}/dfir/retainer`).then(r => r.data)
+export const upsertDfirRetainer = (clientId, payload) => api.put(`/clients/${clientId}/dfir/retainer`, payload).then(r => r.data)
+
+export const listDfirLogAnalysisJobs = (clientId, caseId) => api.get(`/clients/${clientId}/dfir/cases/${caseId}/log-analysis`).then(r => r.data)
+export const uploadDfirLogForAnalysis = (clientId, caseId, file, logType) => {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('log_type', logType)
+  return api.post(`/clients/${clientId}/dfir/cases/${caseId}/log-analysis/upload`, form).then(r => r.data)
+}
+
 // Authenticated file downloads must go through axios (so the Bearer token
 // header is attached) rather than a plain <a href> -- this app has no
 // cookie-based session, so a bare anchor tag hitting an authenticated

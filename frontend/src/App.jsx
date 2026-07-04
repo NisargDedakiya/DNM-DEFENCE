@@ -16,6 +16,7 @@ import AISecurity from './pages/AISecurity.jsx'
 import DevSecOps from './pages/DevSecOps.jsx'
 import RedTeam from './pages/RedTeam.jsx'
 import ZeroDayResearch from './pages/ZeroDayResearch.jsx'
+import DFIR from './pages/DFIR.jsx'
 import { getMe } from './api/client.js'
 
 export default function App() {
@@ -60,6 +61,7 @@ export default function App() {
           <Route path="/clients/:clientId/ai-security" element={<AISecurity />} />
           <Route path="/clients/:clientId/devsecops" element={<DevSecOps />} />
           <Route path="/clients/:clientId/red-team" element={<RedTeam />} />
+          <Route path="/clients/:clientId/dfir" element={<DFIR />} />
           <Route path="/clients/:clientId/reports" element={<Reports />} />
           <Route path="*" element={<Navigate to={homePath} replace />} />
         </Routes>

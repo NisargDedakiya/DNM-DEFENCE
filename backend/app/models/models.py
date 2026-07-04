@@ -900,3 +900,118 @@ class FuzzingJob(Base):
     ended_at = Column(DateTime, nullable=True)
 
     target = relationship("ResearchTarget")
+
+
+# --- Track1_Advanced_Services.docx — DFIR-1 Case Manager + DFIR-2 Log Analyser ---
+
+class DfirCaseStatus(str, enum.Enum):
+    active = "active"
+    contained = "contained"
+    closed = "closed"
+
+
+class DfirCase(Base):
+    """DFIR-1 — one row per incident response engagement."""
+    __tablename__ = "dfir_cases"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    case_number = Column(String(50), unique=True, nullable=False)  # e.g. "DFIR-2026-0001"
+    incident_type = Column(String(255), nullable=True)
+    severity = Column(Enum(Severity), default=Severity.medium)
+    status = Column(Enum(DfirCaseStatus), default=DfirCaseStatus.active)
+    discovered_at = Column(DateTime, nullable=True)
+    contained_at = Column(DateTime, nullable=True)
+    closed_at = Column(DateTime, nullable=True)
+    initial_vector = Column(String(255), nullable=True)
+    affected_systems = Column(JSON, default=list)  # list[str] of hostnames/systems
+    data_exfiltrated = Column(Boolean, default=False)
+    retainer_hours_used = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+class DfirEvidence(Base):
+    """DFIR-1 — acquired evidence artifact. Hashes are computed server-side on upload, never trusted from the client."""
+    __tablename__ = "dfir_evidence"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    case_id = Column(UUID(as_uuid=False), ForeignKey("dfir_cases.id"), nullable=False, index=True)
+    evidence_type = Column(String(100), nullable=True)  # e.g. "disk image", "memory dump", "log export"
+    source_host = Column(String(255), nullable=True)
+    acquisition_tool = Column(String(255), nullable=True)
+    md5_hash = Column(String(32), nullable=True)
+    sha256_hash = Column(String(64), nullable=True)
+    file_size_bytes = Column(Integer, nullable=True)
+    storage_path = Column(String(500), nullable=True)  # UUID-derived storage filename
+    acquired_at = Column(DateTime, default=datetime.utcnow)
+    acquired_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    chain_of_custody = Column(JSON, default=list)  # append-only list of {"timestamp", "custodian", "action"}
+
+    case = relationship("DfirCase")
+
+
+class DfirIoc(Base):
+    """DFIR-1 — an indicator of compromise attributed to a case."""
+    __tablename__ = "dfir_iocs"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    case_id = Column(UUID(as_uuid=False), ForeignKey("dfir_cases.id"), nullable=False, index=True)
+    ioc_type = Column(String(50), nullable=False)  # "ip" | "domain" | "hash" | "email" | "url" | other
+    value = Column(String(500), nullable=False)
+    confidence = Column(String(20), default="medium")  # low | medium | high
+    first_seen = Column(DateTime, nullable=True)
+    last_seen = Column(DateTime, nullable=True)
+    context = Column(Text, nullable=True)
+    attack_technique_id = Column(String(20), nullable=True)
+
+    case = relationship("DfirCase")
+
+
+class DfirTimelineEntry(Base):
+    """DFIR-1 — one entry in the incident's forensic timeline (super-timeline style)."""
+    __tablename__ = "dfir_timeline_entries"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    case_id = Column(UUID(as_uuid=False), ForeignKey("dfir_cases.id"), nullable=False, index=True)
+    timestamp = Column(DateTime, nullable=False)
+    event_description = Column(Text, nullable=False)
+    source = Column(String(255), nullable=True)  # e.g. "EVTX 4624", "CloudTrail", "analyst note"
+    host = Column(String(255), nullable=True)
+    attack_technique_id = Column(String(20), nullable=True)
+
+    case = relationship("DfirCase")
+
+
+class IrRetainer(Base):
+    """DFIR-1 — a client's incident response retainer agreement."""
+    __tablename__ = "ir_retainers"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    tier = Column(String(50), nullable=True)  # e.g. "Bronze", "Silver", "Gold"
+    hours_included_per_year = Column(Integer, default=0)
+    hours_used = Column(Integer, default=0)
+    response_sla_hours = Column(Integer, nullable=True)
+    last_tabletop_at = Column(DateTime, nullable=True)
+
+    client = relationship("Client")
+
+
+class DfirLogAnalysisJob(Base):
+    """DFIR-2 — one row per uploaded log file, processed synchronously on upload (same shape/pattern as MobileAppScan)."""
+    __tablename__ = "dfir_log_analysis_jobs"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    case_id = Column(UUID(as_uuid=False), ForeignKey("dfir_cases.id"), nullable=False, index=True)
+    original_filename = Column(String(255), nullable=True)
+    log_type = Column(String(50), nullable=True)  # "cloudtrail" | "azure" | "gcp" | "syslog" | "web_access" | "paloalto" | "evtx"
+    events_count = Column(Integer, default=0)
+    anomalies = Column(JSON, default=list)
+    iocs = Column(JSON, default=list)
+    narrative = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    case = relationship("DfirCase")
