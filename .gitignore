@@ -4,6 +4,7 @@
 /backend/.env
 /backend/generated_reports/
 /backend/data/
+/backend/dump.rdb
 
 # Python compilation and testing caches
 __pycache__/
@@ -13,7 +14,7 @@ __pycache__/
 *.egg-info/
 /backend/.coverage
 /backend/coverage.xml
-/backend/tests/_pytest_session.db
+/backend/tests/_pytest_session.db*
 
 # Node dependencies and build folders
 /frontend/node_modules/

@@ -20,8 +20,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_table(
         'mobile_app_scans',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
         sa.Column('platform', sa.String(length=20), nullable=False),
         sa.Column('original_filename', sa.String(length=255), nullable=True),
         sa.Column('file_path', sa.String(length=500), nullable=True),
@@ -36,9 +36,9 @@ def upgrade() -> None:
 
     op.create_table(
         'mobile_traffic_imports',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
-        sa.Column('mobile_app_scan_id', sa.String(), sa.ForeignKey('mobile_app_scans.id'), nullable=True, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('mobile_app_scan_id', sa.UUID(as_uuid=False), sa.ForeignKey('mobile_app_scans.id'), nullable=True, index=True),
         sa.Column('discovered_endpoints', sa.JSON()),
         sa.Column('sensitive_data_hits', sa.JSON()),
         sa.Column('auth_classification', sa.JSON()),

@@ -20,8 +20,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_table(
         'pipeline_integrations',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
         sa.Column('provider', sa.String(length=20), nullable=True),
         sa.Column('repo_full_name', sa.String(length=255), nullable=False),
         sa.Column('gate_config', sa.JSON()),
@@ -32,8 +32,8 @@ def upgrade() -> None:
 
     op.create_table(
         'developer_scorecard_snapshots',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
         sa.Column('snapshot_date', sa.DateTime(), nullable=False, index=True),
         sa.Column('metrics', sa.JSON()),
     )

@@ -32,6 +32,10 @@ export const listClients = () => api.get('/clients').then(r => r.data)
 export const getClient = (id) => api.get(`/clients/${id}`).then(r => r.data)
 export const createClient = (payload) => api.post('/clients', payload).then(r => r.data)
 
+export const listClientUsers = (clientId) => api.get(`/clients/${clientId}/users`).then(r => r.data)
+export const createClientUser = (clientId, payload) => api.post(`/clients/${clientId}/users`, payload).then(r => r.data)
+export const updateClientUser = (clientId, userId, payload) => api.patch(`/clients/${clientId}/users/${userId}`, payload).then(r => r.data)
+
 export const listAssets = (clientId) => api.get(`/clients/${clientId}/assets`).then(r => r.data)
 export const listScans = (clientId) => api.get(`/clients/${clientId}/scans`).then(r => r.data)
 export const triggerSubdomainEnum = (clientId) => api.post(`/clients/${clientId}/scans/subdomain-enum`).then(r => r.data)
@@ -179,6 +183,121 @@ export const runIacScan = (clientId, file) => {
   const form = new FormData(); form.append('file', file)
   return api.post(`/clients/${clientId}/devsecops/iac-scan`, form).then(r => r.data)
 }
+
+// --- RT-1 Red Team Operations (analyst/admin only) ---
+export const listRedTeamOps = (clientId) => api.get(`/clients/${clientId}/red-team/operations`).then(r => r.data)
+export const createRedTeamOp = (clientId, payload) => api.post(`/clients/${clientId}/red-team/operations`, payload).then(r => r.data)
+export const getRedTeamOp = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}`).then(r => r.data)
+export const updateRedTeamOp = (clientId, opId, payload) => api.patch(`/clients/${clientId}/red-team/operations/${opId}`, payload).then(r => r.data)
+export const deleteRedTeamOp = (clientId, opId) => api.delete(`/clients/${clientId}/red-team/operations/${opId}`).then(r => r.data)
+
+export const listRedTeamTimeline = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}/timeline`).then(r => r.data)
+export const addRedTeamTimelineEntry = (clientId, opId, payload) => api.post(`/clients/${clientId}/red-team/operations/${opId}/timeline`, payload).then(r => r.data)
+export const uploadRedTeamEvidence = (clientId, opId, entryId, file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/clients/${clientId}/red-team/operations/${opId}/timeline/${entryId}/evidence`, form).then(r => r.data)
+}
+
+export const listRedTeamImplants = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}/implants`).then(r => r.data)
+export const addRedTeamImplant = (clientId, opId, payload) => api.post(`/clients/${clientId}/red-team/operations/${opId}/implants`, payload).then(r => r.data)
+export const updateRedTeamImplant = (clientId, opId, implantId, payload) => api.patch(`/clients/${clientId}/red-team/operations/${opId}/implants/${implantId}`, payload).then(r => r.data)
+
+export const listRedTeamInfra = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}/infrastructure`).then(r => r.data)
+export const addRedTeamInfra = (clientId, opId, payload) => api.post(`/clients/${clientId}/red-team/operations/${opId}/infrastructure`, payload).then(r => r.data)
+export const checkRedTeamInfraExposure = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}/infrastructure/exposure-check`).then(r => r.data)
+
+export const getRedTeamHeatmap = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}/heatmap`).then(r => r.data)
+export const getRedTeamNarrative = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}/narrative`).then(r => r.data)
+
+// --- ZD-1 Zero Day Research (analyst/admin only, not client-scoped) ---
+export const listResearchTargets = () => api.get('/zero-day/targets').then(r => r.data)
+export const createResearchTarget = (payload) => api.post('/zero-day/targets', payload).then(r => r.data)
+export const updateResearchTarget = (targetId, payload) => api.patch(`/zero-day/targets/${targetId}`, payload).then(r => r.data)
+export const deleteResearchTarget = (targetId) => api.delete(`/zero-day/targets/${targetId}`).then(r => r.data)
+
+export const listResearchFindings = (targetId) => api.get(`/zero-day/targets/${targetId}/findings`).then(r => r.data)
+export const createResearchFinding = (targetId, payload) => api.post(`/zero-day/targets/${targetId}/findings`, payload).then(r => r.data)
+export const updateResearchFinding = (targetId, findingId, payload) => api.patch(`/zero-day/targets/${targetId}/findings/${findingId}`, payload).then(r => r.data)
+export const uploadResearchPoc = (targetId, findingId, file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/zero-day/targets/${targetId}/findings/${findingId}/poc`, form).then(r => r.data)
+}
+export const lookupFindingCve = (findingId) => api.get(`/zero-day/findings/${findingId}/lookup-cve`).then(r => r.data)
+export const getFindingAdvisory = (findingId) => api.get(`/zero-day/findings/${findingId}/advisory`).then(r => r.data)
+export const submitFindingHackerOne = (findingId, payload) => api.post(`/zero-day/findings/${findingId}/submit/hackerone`, payload).then(r => r.data)
+export const submitFindingBugcrowd = (findingId, payload) => api.post(`/zero-day/findings/${findingId}/submit/bugcrowd`, payload).then(r => r.data)
+export const publishFindingAdvisory = (findingId, payload) => api.post(`/zero-day/findings/${findingId}/publish-advisory`, payload).then(r => r.data)
+
+export const listFuzzingJobs = (targetId) => api.get(`/zero-day/targets/${targetId}/fuzzing-jobs`).then(r => r.data)
+export const createFuzzingJob = (targetId, payload) => api.post(`/zero-day/targets/${targetId}/fuzzing-jobs`, payload).then(r => r.data)
+export const updateFuzzingJob = (targetId, jobId, payload) => api.patch(`/zero-day/targets/${targetId}/fuzzing-jobs/${jobId}`, payload).then(r => r.data)
+
+// --- DFIR-1/DFIR-2 Incident Response Case Manager & Log Analyzer (analyst/admin only) ---
+export const listDfirCases = (clientId) => api.get(`/clients/${clientId}/dfir/cases`).then(r => r.data)
+export const createDfirCase = (clientId, payload) => api.post(`/clients/${clientId}/dfir/cases`, payload).then(r => r.data)
+export const updateDfirCase = (clientId, caseId, payload) => api.patch(`/clients/${clientId}/dfir/cases/${caseId}`, payload).then(r => r.data)
+
+export const listDfirEvidence = (clientId, caseId) => api.get(`/clients/${clientId}/dfir/cases/${caseId}/evidence`).then(r => r.data)
+export const uploadDfirEvidence = (clientId, caseId, file, meta) => {
+  const form = new FormData()
+  form.append('file', file)
+  Object.entries(meta).forEach(([k, v]) => form.append(k, v))
+  return api.post(`/clients/${clientId}/dfir/cases/${caseId}/evidence`, form).then(r => r.data)
+}
+export const addDfirCustodyEntry = (clientId, caseId, evidenceId, payload) =>
+  api.post(`/clients/${clientId}/dfir/cases/${caseId}/evidence/${evidenceId}/custody`, payload).then(r => r.data)
+
+export const listDfirIocs = (clientId, caseId) => api.get(`/clients/${clientId}/dfir/cases/${caseId}/iocs`).then(r => r.data)
+export const addDfirIoc = (clientId, caseId, payload) => api.post(`/clients/${clientId}/dfir/cases/${caseId}/iocs`, payload).then(r => r.data)
+
+export const listDfirTimeline = (clientId, caseId) => api.get(`/clients/${clientId}/dfir/cases/${caseId}/timeline`).then(r => r.data)
+export const addDfirTimelineEntry = (clientId, caseId, payload) => api.post(`/clients/${clientId}/dfir/cases/${caseId}/timeline`, payload).then(r => r.data)
+
+export const getDfirExecutiveReport = (clientId, caseId) => api.get(`/clients/${clientId}/dfir/cases/${caseId}/reports/executive`).then(r => r.data)
+export const getDfirTechnicalReport = (clientId, caseId) => api.get(`/clients/${clientId}/dfir/cases/${caseId}/reports/technical`).then(r => r.data)
+
+export const getDfirRetainer = (clientId) => api.get(`/clients/${clientId}/dfir/retainer`).then(r => r.data)
+export const upsertDfirRetainer = (clientId, payload) => api.put(`/clients/${clientId}/dfir/retainer`, payload).then(r => r.data)
+
+export const listDfirLogAnalysisJobs = (clientId, caseId) => api.get(`/clients/${clientId}/dfir/cases/${caseId}/log-analysis`).then(r => r.data)
+export const uploadDfirLogForAnalysis = (clientId, caseId, file, logType) => {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('log_type', logType)
+  return api.post(`/clients/${clientId}/dfir/cases/${caseId}/log-analysis/upload`, form).then(r => r.data)
+}
+
+// --- IOT-1 Hardware & IoT Firmware Analyzer (analyst/admin only) ---
+export const listFirmwareScans = (clientId) => api.get(`/clients/${clientId}/firmware-scans`).then(r => r.data)
+export const uploadFirmware = (clientId, file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/clients/${clientId}/firmware-scans`, form).then(r => r.data)
+}
+export const analyzeFirmwareScan = (clientId, scanId) => api.post(`/clients/${clientId}/firmware-scans/${scanId}/analyze`).then(r => r.data)
+
+// --- TH-1 Continuous Threat Hunting (analyst/admin only) ---
+export const listHuntHypotheses = () => api.get('/threat-hunting/hypotheses').then(r => r.data)
+export const seedHuntHypotheses = () => api.post('/threat-hunting/hypotheses/seed').then(r => r.data)
+export const createHuntHypothesis = (payload) => api.post('/threat-hunting/hypotheses', payload).then(r => r.data)
+export const generateHuntHypothesis = (payload) => api.post('/threat-hunting/hypotheses/generate', payload).then(r => r.data)
+
+export const listHunts = (clientId) => api.get(`/clients/${clientId}/threat-hunting/hunts`).then(r => r.data)
+export const createHunt = (clientId, payload) => api.post(`/clients/${clientId}/threat-hunting/hunts`, payload).then(r => r.data)
+export const updateHunt = (clientId, huntId, payload) => api.patch(`/clients/${clientId}/threat-hunting/hunts/${huntId}`, payload).then(r => r.data)
+
+export const listHuntFindings = (clientId, huntId) => api.get(`/clients/${clientId}/threat-hunting/hunts/${huntId}/findings`).then(r => r.data)
+export const addHuntFinding = (clientId, huntId, payload) => api.post(`/clients/${clientId}/threat-hunting/hunts/${huntId}/findings`, payload).then(r => r.data)
+export const getHuntReport = (clientId, huntId) => api.get(`/clients/${clientId}/threat-hunting/hunts/${huntId}/report`).then(r => r.data)
+
+export const getThreatHuntingCoverage = (clientId) => api.get(`/clients/${clientId}/threat-hunting/coverage`).then(r => r.data)
+export const enrichIoc = (clientId, payload) => api.post(`/clients/${clientId}/threat-hunting/enrich-ioc`, payload).then(r => r.data)
+
+export const listSiemConnections = (clientId) => api.get(`/clients/${clientId}/threat-hunting/siem-connections`).then(r => r.data)
+export const registerSiemConnection = (clientId, payload) => api.post(`/clients/${clientId}/threat-hunting/siem-connections`, payload).then(r => r.data)
+export const querySiemConnection = (clientId, connectionId, payload) => api.post(`/clients/${clientId}/threat-hunting/siem-connections/${connectionId}/query`, payload).then(r => r.data)
 
 // Authenticated file downloads must go through axios (so the Bearer token
 // header is attached) rather than a plain <a href> -- this app has no

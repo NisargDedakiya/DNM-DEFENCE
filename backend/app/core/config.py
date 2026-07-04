@@ -82,5 +82,10 @@ class Settings(BaseSettings):
     ONCHAIN_POLL_INTERVAL_MINUTES: int = 5  # WEB3-3 — interval polling, not block-by-block (see README)
     PUBLIC_API_BASE_URL: str = "http://localhost:8000"  # SE-2 — used to build phishing tracking-pixel/landing-page links
 
+    # Advanced services — all optional, all degrade gracefully if unset
+    HACKERONE_API_TOKEN: str = ""        # ZD-1 bug bounty submission tracking
+    BUGCROWD_API_KEY: str = ""           # ZD-1 bug bounty submission tracking
+    NVD_API_KEY: str = ""                # IOT-1/ZD-1 NVD API v2 — optional, lifts the strict keyless rate limit
+
 
 settings = Settings()

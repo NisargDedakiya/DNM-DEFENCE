@@ -3,12 +3,13 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 import {
-  getClient, listFindings, listAssets, listScans, getFindingsTrend,
+  getClient, getMe, listFindings, listAssets, listScans, getFindingsTrend,
   triggerSubdomainEnum, triggerVulnScan, triggerDarkWebScan,
 } from '../api/client.js'
 import RiskScoreRadial from '../components/RiskScoreRadial.jsx'
 import SeverityBadge from '../components/SeverityBadge.jsx'
 import PentestWidget from '../components/PentestWidget.jsx'
+import ClientPortalAccessWidget from '../components/ClientPortalAccessWidget.jsx'
 
 const riskScore = (counts) => Math.min(100, counts.critical * 25 + counts.high * 10 + counts.medium * 3 + counts.low * 1)
 
@@ -18,6 +19,8 @@ export default function Dashboard() {
   const [trendMonths, setTrendMonths] = useState(3)
 
   const { data: client } = useQuery({ queryKey: ['client', clientId], queryFn: () => getClient(clientId) })
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe })
+  const isStaff = me?.role === 'admin' || me?.role === 'analyst'
   const { data: findings } = useQuery({ queryKey: ['findings', clientId], queryFn: () => listFindings(clientId) })
   const { data: assets } = useQuery({ queryKey: ['assets', clientId], queryFn: () => listAssets(clientId) })
   const { data: scans } = useQuery({ queryKey: ['scans', clientId], queryFn: () => listScans(clientId) })
@@ -157,6 +160,12 @@ export default function Dashboard() {
 
         <PentestWidget />
       </div>
+
+      {isStaff && (
+        <div className="grid grid-cols-1 gap-6 mt-6">
+          <ClientPortalAccessWidget />
+        </div>
+      )}
     </div>
   )
 }

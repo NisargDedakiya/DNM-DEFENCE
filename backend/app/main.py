@@ -18,7 +18,8 @@ from app.core.audit import log_action as core_log_action
 from app.core.database import SessionLocal
 from app.api import (
     clients, assets, findings, cloud, reports, compliance, phishing, phishing_public, pentest, auth, audit,
-    osint, vishing, physical_security, mobile_security, web3_security, ai_security, devsecops,
+    osint, vishing, physical_security, mobile_security, web3_security, ai_security, devsecops, red_team, zero_day,
+    dfir, firmware, threat_hunting,
 )
 
 # Import models so Base.metadata knows about every table before create_all
@@ -214,6 +215,12 @@ app.include_router(mobile_security.router)
 app.include_router(web3_security.router)
 app.include_router(ai_security.router)
 app.include_router(devsecops.router)
+app.include_router(red_team.router)
+app.include_router(zero_day.router)
+app.include_router(dfir.router)
+app.include_router(firmware.router)
+app.include_router(threat_hunting.hypothesis_router)
+app.include_router(threat_hunting.router)
 
 if settings.ENABLE_METRICS:
     # Exposes GET /metrics in Prometheus text format: request counts, latency

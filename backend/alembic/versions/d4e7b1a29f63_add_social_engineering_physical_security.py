@@ -24,8 +24,8 @@ def upgrade() -> None:
 
     op.create_table(
         'osint_profiles',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
         sa.Column('generated_at', sa.DateTime()),
         sa.Column('findings', sa.JSON()),
         sa.Column('report_path', sa.String(length=500), nullable=True),
@@ -33,8 +33,8 @@ def upgrade() -> None:
 
     op.create_table(
         'phishing_targets',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('campaign_id', sa.String(), sa.ForeignKey('phishing_campaigns.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('campaign_id', sa.UUID(as_uuid=False), sa.ForeignKey('phishing_campaigns.id'), nullable=False, index=True),
         sa.Column('name', sa.String(length=255), nullable=True),
         sa.Column('role', sa.String(length=255), nullable=True),
         sa.Column('email', sa.String(length=255), nullable=False),
@@ -51,8 +51,8 @@ def upgrade() -> None:
 
     op.create_table(
         'vishing_engagements',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
         sa.Column('scenario', sa.String(length=500), nullable=True),
         sa.Column('recording_path', sa.String(length=500), nullable=True),
         sa.Column('transcript', sa.Text(), nullable=True),
@@ -63,8 +63,8 @@ def upgrade() -> None:
 
     op.create_table(
         'physical_security_assessments',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
         sa.Column('site_name', sa.String(length=255), nullable=True),
         sa.Column('scheduled_date', sa.DateTime(), nullable=True),
         sa.Column('status', sa.String(length=20), nullable=True),
@@ -74,8 +74,8 @@ def upgrade() -> None:
 
     op.create_table(
         'physical_security_checklist_items',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('assessment_id', sa.String(), sa.ForeignKey('physical_security_assessments.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('assessment_id', sa.UUID(as_uuid=False), sa.ForeignKey('physical_security_assessments.id'), nullable=False, index=True),
         sa.Column('test_type', sa.String(length=30), nullable=False),
         sa.Column('attempted', sa.Boolean(), nullable=True),
         sa.Column('outcome_notes', sa.Text(), nullable=True),

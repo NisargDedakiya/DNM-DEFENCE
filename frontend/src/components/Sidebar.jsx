@@ -25,8 +25,9 @@ export default function Sidebar({ user, onLogout }) {
         <h1 className="text-lg font-semibold mt-1">Security Portal</h1>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-1">
         {isStaff && <NavLink to="/" end className={navItem}>All Clients</NavLink>}
+        {isStaff && <NavLink to="/zero-day-research" className={navItem}>Zero Day Research</NavLink>}
 
         {clientId && (
           <>
@@ -44,6 +45,16 @@ export default function Sidebar({ user, onLogout }) {
             <NavLink to={`/clients/${clientId}/web3-security`} className={navItem}>Web3 &amp; Blockchain</NavLink>
             <NavLink to={`/clients/${clientId}/ai-security`} className={navItem}>AI/ML Security</NavLink>
             <NavLink to={`/clients/${clientId}/devsecops`} className={navItem}>DevSecOps</NavLink>
+          </>
+        )}
+
+        {isStaff && clientId && (
+          <>
+            <div className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-widest text-muted font-mono">Advanced Services</div>
+            <NavLink to={`/clients/${clientId}/red-team`} className={navItem}>Red Team Operations</NavLink>
+            <NavLink to={`/clients/${clientId}/dfir`} className={navItem}>DFIR</NavLink>
+            <NavLink to={`/clients/${clientId}/hardware-iot`} className={navItem}>Hardware &amp; IoT Security</NavLink>
+            <NavLink to={`/clients/${clientId}/threat-hunting`} className={navItem}>Threat Hunting</NavLink>
           </>
         )}
       </nav>

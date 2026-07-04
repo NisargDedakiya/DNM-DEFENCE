@@ -33,8 +33,8 @@ def upgrade() -> None:
 
     op.create_table(
         'prompt_injection_tests',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
         sa.Column('target_url', sa.String(length=500), nullable=False),
         sa.Column('results', sa.JSON()),
         sa.Column('success_count', sa.Integer(), nullable=True),
@@ -43,8 +43,8 @@ def upgrade() -> None:
 
     op.create_table(
         'ai_feature_inventory',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
         sa.Column('feature_name', sa.String(length=255), nullable=False),
         sa.Column('feature_type', sa.String(length=100), nullable=True),
         sa.Column('library_stack', sa.JSON()),

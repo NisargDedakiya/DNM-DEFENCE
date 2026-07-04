@@ -682,3 +682,433 @@ class DeveloperScorecardSnapshot(Base):
     metrics = Column(JSON, default=dict)  # {"pipeline_health_score", "vulnerabilities_blocked", "secrets_blocked", "mttr_hours", ...}
 
     client = relationship("Client")
+
+
+# --- Track1_Advanced_Services.docx — shared: TH-1 SIEM/EDR credential storage ---
+
+class SiemProvider(str, enum.Enum):
+    elastic = "elastic"
+    splunk = "splunk"
+    crowdstrike = "crowdstrike"
+    sentinelone = "sentinelone"
+
+
+class SiemConnection(Base):
+    """TH-1 — a client's own SIEM/EDR API credentials, same shape and Fernet-encryption pattern as CloudAccount."""
+    __tablename__ = "siem_connections"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    provider = Column(Enum(SiemProvider), nullable=False)
+    base_url = Column(String(500), nullable=True)
+    encrypted_credentials = Column(Text, nullable=False)  # Fernet-encrypted, read-only query creds
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+# --- Track1_Advanced_Services.docx — RT-1 Red Team Operations ---
+# Tracking/logging tool only: this platform does not run a C2 server or execute
+# attacks. A human red teamer operates real tooling (Cobalt Strike, Havoc, etc.)
+# outside this platform and logs what they did here -- same model as Ghostwriter/RedELK.
+
+class RedTeamOperationStatus(str, enum.Enum):
+    planning = "planning"
+    active = "active"
+    complete = "complete"
+
+
+class RedTeamTimelinePhase(str, enum.Enum):
+    recon = "recon"
+    initial_access = "initial_access"
+    lateral_movement = "lateral_movement"
+    persistence = "persistence"
+    exfiltration = "exfiltration"
+    objective = "objective"
+
+
+class RedTeamDetectionStatus(str, enum.Enum):
+    detected = "detected"
+    not_detected = "not_detected"
+    partial = "partial"
+
+
+class RedTeamInfraType(str, enum.Enum):
+    c2_server = "c2_server"
+    phishing_domain = "phishing_domain"
+    payload_host = "payload_host"
+    redirector = "redirector"
+
+
+class RedTeamOperation(Base):
+    """RT-1 — one row per red team engagement. Analyst-only workspace, never client-visible."""
+    __tablename__ = "red_team_operations"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    objective = Column(Text, nullable=True)
+    threat_actor = Column(String(255), nullable=True)  # emulated actor/profile, e.g. "FIN7"
+    status = Column(Enum(RedTeamOperationStatus), default=RedTeamOperationStatus.planning)
+    start_date = Column(DateTime, nullable=True)
+    end_date = Column(DateTime, nullable=True)
+    roe_signed = Column(Boolean, default=False)  # Rules of Engagement signed off
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+class RedTeamTimelineEntry(Base):
+    """RT-1 — one row per logged action during an operation. This is the actual C2/attack activity log, entered by the operator after the fact."""
+    __tablename__ = "red_team_timeline_entries"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    operation_id = Column(UUID(as_uuid=False), ForeignKey("red_team_operations.id"), nullable=False, index=True)
+    timestamp = Column(DateTime, nullable=False)
+    phase = Column(Enum(RedTeamTimelinePhase), nullable=False)
+    action = Column(Text, nullable=False)
+    host = Column(String(255), nullable=True)
+    user_context = Column(String(255), nullable=True)
+    tool_used = Column(String(255), nullable=True)
+    outcome = Column(Text, nullable=True)
+    detected = Column(Enum(RedTeamDetectionStatus), default=RedTeamDetectionStatus.not_detected)
+    attack_technique_id = Column(String(20), nullable=True)  # free text, e.g. "T1566.001"
+    evidence_path = Column(String(500), nullable=True)  # UUID-derived storage filename
+
+    operation = relationship("RedTeamOperation")
+
+
+class RedTeamImplant(Base):
+    """RT-1 — tracked implant/beacon, mirroring what the real C2 tool (outside this platform) reports."""
+    __tablename__ = "red_team_implants"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    operation_id = Column(UUID(as_uuid=False), ForeignKey("red_team_operations.id"), nullable=False, index=True)
+    host = Column(String(255), nullable=False)
+    ip_address = Column(String(64), nullable=True)
+    username = Column(String(255), nullable=True)
+    implant_type = Column(String(100), nullable=True)  # e.g. "beacon", "havoc-demon"
+    persistence = Column(String(255), nullable=True)  # persistence mechanism description
+    checkin_freq_seconds = Column(Integer, nullable=True)
+    is_active = Column(Boolean, default=True)
+    deployed_at = Column(DateTime, default=datetime.utcnow)
+
+    operation = relationship("RedTeamOperation")
+
+
+class RedTeamInfrastructure(Base):
+    """RT-1 — attacker-owned infra tracker (C2 servers, phishing domains, redirectors, payload hosts)."""
+    __tablename__ = "red_team_infrastructure"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    operation_id = Column(UUID(as_uuid=False), ForeignKey("red_team_operations.id"), nullable=False, index=True)
+    infra_type = Column(Enum(RedTeamInfraType), nullable=False)
+    identifier = Column(String(255), nullable=False)  # IP, domain, or hostname
+    provider = Column(String(255), nullable=True)  # e.g. "DigitalOcean", "Namecheap"
+    notes = Column(Text, nullable=True)
+
+    operation = relationship("RedTeamOperation")
+
+
+# --- Track1_Advanced_Services.docx — ZD-1 Zero Day Research & Responsible Disclosure ---
+# Tracking platform + optional local fuzz hook: FuzzingJob is an analyst-updated
+# tracking record (status, crashes found), not a live AFL++/LibFuzzer/Boofuzz
+# orchestration engine -- see plan Context for the confirmed scope boundary.
+
+class ResearchStatus(str, enum.Enum):
+    identified = "identified"
+    active = "active"
+    paused = "paused"
+    complete = "complete"
+
+
+class ResearchFindingStatus(str, enum.Enum):
+    researching = "researching"
+    confirmed = "confirmed"
+    disclosed = "disclosed"
+    published = "published"
+
+
+class FuzzingJobStatus(str, enum.Enum):
+    queued = "queued"
+    running = "running"
+    stopped = "stopped"
+    completed = "completed"
+
+
+class ResearchTarget(Base):
+    """ZD-1 — a piece of software/firmware/protocol under active vulnerability research. client_id is nullable: null means independent Track-A research, set means client-commissioned Track-B."""
+    __tablename__ = "research_targets"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=True, index=True)
+    name = Column(String(255), nullable=False)
+    vendor = Column(String(255), nullable=True)
+    version = Column(String(100), nullable=True)
+    language = Column(String(100), nullable=True)
+    source_url = Column(String(500), nullable=True)
+    bug_bounty_url = Column(String(500), nullable=True)
+    max_bounty = Column(Integer, nullable=True)  # USD, whole-dollar
+    priority = Column(String(20), default="medium")
+    status = Column(Enum(ResearchStatus), default=ResearchStatus.identified)
+    total_hours = Column(Integer, default=0)
+    total_earned = Column(Integer, default=0)  # USD, whole-dollar
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+class ResearchFinding(Base):
+    """ZD-1 — one candidate/confirmed vulnerability discovered in a research target."""
+    __tablename__ = "research_findings"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    target_id = Column(UUID(as_uuid=False), ForeignKey("research_targets.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    cve_id = Column(String(20), nullable=True, index=True)
+    cvss_score = Column(Float, nullable=True)
+    severity = Column(Enum(Severity), nullable=True)
+    vuln_class = Column(String(255), nullable=True)  # e.g. "Buffer Overflow", "SQLi", "Auth Bypass"
+    description = Column(Text, nullable=True)
+    poc_path = Column(String(500), nullable=True)  # UUID-derived storage filename
+    status = Column(Enum(ResearchFindingStatus), default=ResearchFindingStatus.researching)
+    vendor_notified = Column(DateTime, nullable=True)
+    patch_released = Column(DateTime, nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    bounty_amount = Column(Integer, nullable=True)  # USD, whole-dollar
+    bounty_platform = Column(String(50), nullable=True)  # "hackerone" | "bugcrowd" | "direct"
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    target = relationship("ResearchTarget")
+
+
+class FuzzingJob(Base):
+    """ZD-1 — an analyst-updated tracking record for a fuzzing campaign run OUTSIDE this platform (AFL++/LibFuzzer/Boofuzz). Not orchestrated here -- see module docstring."""
+    __tablename__ = "fuzzing_jobs"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    target_id = Column(UUID(as_uuid=False), ForeignKey("research_targets.id"), nullable=False, index=True)
+    fuzzer = Column(String(50), nullable=False)  # "afl++" | "libfuzzer" | "boofuzz" | other
+    target_binary_path = Column(String(500), nullable=True)
+    corpus_path = Column(String(500), nullable=True)
+    status = Column(Enum(FuzzingJobStatus), default=FuzzingJobStatus.queued)
+    crashes_found = Column(Integer, default=0)
+    execs_per_sec = Column(Integer, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+
+    target = relationship("ResearchTarget")
+
+
+# --- Track1_Advanced_Services.docx — DFIR-1 Case Manager + DFIR-2 Log Analyser ---
+
+class DfirCaseStatus(str, enum.Enum):
+    active = "active"
+    contained = "contained"
+    closed = "closed"
+
+
+class DfirCase(Base):
+    """DFIR-1 — one row per incident response engagement."""
+    __tablename__ = "dfir_cases"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    case_number = Column(String(50), unique=True, nullable=False)  # e.g. "DFIR-2026-0001"
+    incident_type = Column(String(255), nullable=True)
+    severity = Column(Enum(Severity), default=Severity.medium)
+    status = Column(Enum(DfirCaseStatus), default=DfirCaseStatus.active)
+    discovered_at = Column(DateTime, nullable=True)
+    contained_at = Column(DateTime, nullable=True)
+    closed_at = Column(DateTime, nullable=True)
+    initial_vector = Column(String(255), nullable=True)
+    affected_systems = Column(JSON, default=list)  # list[str] of hostnames/systems
+    data_exfiltrated = Column(Boolean, default=False)
+    retainer_hours_used = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+class DfirEvidence(Base):
+    """DFIR-1 — acquired evidence artifact. Hashes are computed server-side on upload, never trusted from the client."""
+    __tablename__ = "dfir_evidence"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    case_id = Column(UUID(as_uuid=False), ForeignKey("dfir_cases.id"), nullable=False, index=True)
+    evidence_type = Column(String(100), nullable=True)  # e.g. "disk image", "memory dump", "log export"
+    source_host = Column(String(255), nullable=True)
+    acquisition_tool = Column(String(255), nullable=True)
+    md5_hash = Column(String(32), nullable=True)
+    sha256_hash = Column(String(64), nullable=True)
+    file_size_bytes = Column(Integer, nullable=True)
+    storage_path = Column(String(500), nullable=True)  # UUID-derived storage filename
+    acquired_at = Column(DateTime, default=datetime.utcnow)
+    acquired_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    chain_of_custody = Column(JSON, default=list)  # append-only list of {"timestamp", "custodian", "action"}
+
+    case = relationship("DfirCase")
+
+
+class DfirIoc(Base):
+    """DFIR-1 — an indicator of compromise attributed to a case."""
+    __tablename__ = "dfir_iocs"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    case_id = Column(UUID(as_uuid=False), ForeignKey("dfir_cases.id"), nullable=False, index=True)
+    ioc_type = Column(String(50), nullable=False)  # "ip" | "domain" | "hash" | "email" | "url" | other
+    value = Column(String(500), nullable=False)
+    confidence = Column(String(20), default="medium")  # low | medium | high
+    first_seen = Column(DateTime, nullable=True)
+    last_seen = Column(DateTime, nullable=True)
+    context = Column(Text, nullable=True)
+    attack_technique_id = Column(String(20), nullable=True)
+
+    case = relationship("DfirCase")
+
+
+class DfirTimelineEntry(Base):
+    """DFIR-1 — one entry in the incident's forensic timeline (super-timeline style)."""
+    __tablename__ = "dfir_timeline_entries"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    case_id = Column(UUID(as_uuid=False), ForeignKey("dfir_cases.id"), nullable=False, index=True)
+    timestamp = Column(DateTime, nullable=False)
+    event_description = Column(Text, nullable=False)
+    source = Column(String(255), nullable=True)  # e.g. "EVTX 4624", "CloudTrail", "analyst note"
+    host = Column(String(255), nullable=True)
+    attack_technique_id = Column(String(20), nullable=True)
+
+    case = relationship("DfirCase")
+
+
+class IrRetainer(Base):
+    """DFIR-1 — a client's incident response retainer agreement."""
+    __tablename__ = "ir_retainers"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    tier = Column(String(50), nullable=True)  # e.g. "Bronze", "Silver", "Gold"
+    hours_included_per_year = Column(Integer, default=0)
+    hours_used = Column(Integer, default=0)
+    response_sla_hours = Column(Integer, nullable=True)
+    last_tabletop_at = Column(DateTime, nullable=True)
+
+    client = relationship("Client")
+
+
+class DfirLogAnalysisJob(Base):
+    """DFIR-2 — one row per uploaded log file, processed synchronously on upload (same shape/pattern as MobileAppScan)."""
+    __tablename__ = "dfir_log_analysis_jobs"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    case_id = Column(UUID(as_uuid=False), ForeignKey("dfir_cases.id"), nullable=False, index=True)
+    original_filename = Column(String(255), nullable=True)
+    log_type = Column(String(50), nullable=True)  # "cloudtrail" | "azure" | "gcp" | "syslog" | "web_access" | "paloalto" | "evtx"
+    events_count = Column(Integer, default=0)
+    anomalies = Column(JSON, default=list)
+    iocs = Column(JSON, default=list)
+    narrative = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    case = relationship("DfirCase")
+
+
+class FirmwareScanStatus(str, enum.Enum):
+    queued = "queued"
+    completed = "completed"
+    failed = "failed"
+
+
+class FirmwareAnalysisJob(Base):
+    """IOT-1 — one row per uploaded firmware image, same shape/pattern as MobileAppScan."""
+    __tablename__ = "firmware_analysis_jobs"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    original_filename = Column(String(255), nullable=True)
+    file_path = Column(String(500), nullable=True)
+    status = Column(Enum(FirmwareScanStatus), default=FirmwareScanStatus.queued)
+    component_summary = Column(JSON, default=dict)  # {"BusyBox": "1.31.1", "OpenSSL": "1.1.1k", ...}
+    findings = Column(JSON, default=dict)  # {"components": {...}, "secrets": [...], "cves": [...], "extracted": bool}
+    executive_summary = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+# --- Track1_Advanced_Services.docx — TH-1 Continuous Threat Hunting ---
+
+class HuntHypothesisSource(str, enum.Enum):
+    manual = "manual"
+    ai_generated = "ai_generated"
+    cti_feed = "cti_feed"
+
+
+class HuntOperationStatus(str, enum.Enum):
+    planned = "planned"
+    active = "active"
+    complete = "complete"
+
+
+class HuntOutcome(str, enum.Enum):
+    threat_found = "threat_found"
+    negative = "negative"
+    inconclusive = "inconclusive"
+
+
+class HuntHypothesis(Base):
+    """TH-1 — a reusable hunt hypothesis. NOT client-scoped: this is a shared library analysts draw hunts from."""
+    __tablename__ = "hunt_hypotheses"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    attack_technique = Column(String(20), nullable=True)
+    data_sources = Column(JSON, default=list)  # e.g. ["EDR", "DNS logs", "auth logs"]
+    industries = Column(JSON, default=list)  # e.g. ["fintech", "healthcare"] -- empty means industry-agnostic
+    priority = Column(String(20), default="medium")
+    hunt_count = Column(Integer, default=0)
+    last_positive_at = Column(DateTime, nullable=True)
+    source = Column(Enum(HuntHypothesisSource), default=HuntHypothesisSource.manual)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class HuntOperation(Base):
+    """TH-1 — one client-scoped hunt run against a hypothesis from the shared library."""
+    __tablename__ = "hunt_operations"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    hypothesis_id = Column(UUID(as_uuid=False), ForeignKey("hunt_hypotheses.id"), nullable=False, index=True)
+    analyst_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    status = Column(Enum(HuntOperationStatus), default=HuntOperationStatus.planned)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    outcome = Column(Enum(HuntOutcome), nullable=True)
+    hours_spent = Column(Integer, default=0)
+
+    client = relationship("Client")
+    hypothesis = relationship("HuntHypothesis")
+
+
+class HuntFinding(Base):
+    """TH-1 — a finding surfaced during a hunt operation."""
+    __tablename__ = "hunt_findings"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    hunt_id = Column(UUID(as_uuid=False), ForeignKey("hunt_operations.id"), nullable=False, index=True)
+    severity = Column(Enum(Severity), default=Severity.medium)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    evidence = Column(JSON, default=dict)
+    iocs = Column(JSON, default=list)  # list[{"ioc_type": ..., "value": ...}]
+    attack_technique_id = Column(String(20), nullable=True)
+    confirmed = Column(Boolean, default=False)
+    escalated_to_ir = Column(Boolean, default=False)
+
+    hunt = relationship("HuntOperation")
