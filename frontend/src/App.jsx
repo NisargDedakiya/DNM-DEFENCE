@@ -15,6 +15,7 @@ import Web3Security from './pages/Web3Security.jsx'
 import AISecurity from './pages/AISecurity.jsx'
 import DevSecOps from './pages/DevSecOps.jsx'
 import RedTeam from './pages/RedTeam.jsx'
+import ZeroDayResearch from './pages/ZeroDayResearch.jsx'
 import { getMe } from './api/client.js'
 
 export default function App() {
@@ -47,6 +48,7 @@ export default function App() {
       <main className="flex-1 ml-64 p-8 max-w-6xl">
         <Routes>
           <Route path="/" element={user.role === 'client' ? <Navigate to={homePath} replace /> : <ClientList />} />
+          <Route path="/zero-day-research" element={<ZeroDayResearch />} />
           <Route path="/clients/:clientId" element={<Dashboard />} />
           <Route path="/clients/:clientId/assets" element={<Assets />} />
           <Route path="/clients/:clientId/findings" element={<Findings />} />

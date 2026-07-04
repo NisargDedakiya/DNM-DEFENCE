@@ -809,3 +809,94 @@ class RedTeamInfrastructure(Base):
     notes = Column(Text, nullable=True)
 
     operation = relationship("RedTeamOperation")
+
+
+# --- Track1_Advanced_Services.docx — ZD-1 Zero Day Research & Responsible Disclosure ---
+# Tracking platform + optional local fuzz hook: FuzzingJob is an analyst-updated
+# tracking record (status, crashes found), not a live AFL++/LibFuzzer/Boofuzz
+# orchestration engine -- see plan Context for the confirmed scope boundary.
+
+class ResearchStatus(str, enum.Enum):
+    identified = "identified"
+    active = "active"
+    paused = "paused"
+    complete = "complete"
+
+
+class ResearchFindingStatus(str, enum.Enum):
+    researching = "researching"
+    confirmed = "confirmed"
+    disclosed = "disclosed"
+    published = "published"
+
+
+class FuzzingJobStatus(str, enum.Enum):
+    queued = "queued"
+    running = "running"
+    stopped = "stopped"
+    completed = "completed"
+
+
+class ResearchTarget(Base):
+    """ZD-1 — a piece of software/firmware/protocol under active vulnerability research. client_id is nullable: null means independent Track-A research, set means client-commissioned Track-B."""
+    __tablename__ = "research_targets"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=True, index=True)
+    name = Column(String(255), nullable=False)
+    vendor = Column(String(255), nullable=True)
+    version = Column(String(100), nullable=True)
+    language = Column(String(100), nullable=True)
+    source_url = Column(String(500), nullable=True)
+    bug_bounty_url = Column(String(500), nullable=True)
+    max_bounty = Column(Integer, nullable=True)  # USD, whole-dollar
+    priority = Column(String(20), default="medium")
+    status = Column(Enum(ResearchStatus), default=ResearchStatus.identified)
+    total_hours = Column(Integer, default=0)
+    total_earned = Column(Integer, default=0)  # USD, whole-dollar
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+
+
+class ResearchFinding(Base):
+    """ZD-1 — one candidate/confirmed vulnerability discovered in a research target."""
+    __tablename__ = "research_findings"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    target_id = Column(UUID(as_uuid=False), ForeignKey("research_targets.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    cve_id = Column(String(20), nullable=True, index=True)
+    cvss_score = Column(Float, nullable=True)
+    severity = Column(Enum(Severity), nullable=True)
+    vuln_class = Column(String(255), nullable=True)  # e.g. "Buffer Overflow", "SQLi", "Auth Bypass"
+    description = Column(Text, nullable=True)
+    poc_path = Column(String(500), nullable=True)  # UUID-derived storage filename
+    status = Column(Enum(ResearchFindingStatus), default=ResearchFindingStatus.researching)
+    vendor_notified = Column(DateTime, nullable=True)
+    patch_released = Column(DateTime, nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    bounty_amount = Column(Integer, nullable=True)  # USD, whole-dollar
+    bounty_platform = Column(String(50), nullable=True)  # "hackerone" | "bugcrowd" | "direct"
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    target = relationship("ResearchTarget")
+
+
+class FuzzingJob(Base):
+    """ZD-1 — an analyst-updated tracking record for a fuzzing campaign run OUTSIDE this platform (AFL++/LibFuzzer/Boofuzz). Not orchestrated here -- see module docstring."""
+    __tablename__ = "fuzzing_jobs"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    target_id = Column(UUID(as_uuid=False), ForeignKey("research_targets.id"), nullable=False, index=True)
+    fuzzer = Column(String(50), nullable=False)  # "afl++" | "libfuzzer" | "boofuzz" | other
+    target_binary_path = Column(String(500), nullable=True)
+    corpus_path = Column(String(500), nullable=True)
+    status = Column(Enum(FuzzingJobStatus), default=FuzzingJobStatus.queued)
+    crashes_found = Column(Integer, default=0)
+    execs_per_sec = Column(Integer, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+
+    target = relationship("ResearchTarget")

@@ -27,6 +27,7 @@ export default function Sidebar({ user, onLogout }) {
 
       <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-1">
         {isStaff && <NavLink to="/" end className={navItem}>All Clients</NavLink>}
+        {isStaff && <NavLink to="/zero-day-research" className={navItem}>Zero Day Research</NavLink>}
 
         {clientId && (
           <>

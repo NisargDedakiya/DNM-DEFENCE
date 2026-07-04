@@ -210,6 +210,30 @@ export const checkRedTeamInfraExposure = (clientId, opId) => api.get(`/clients/$
 export const getRedTeamHeatmap = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}/heatmap`).then(r => r.data)
 export const getRedTeamNarrative = (clientId, opId) => api.get(`/clients/${clientId}/red-team/operations/${opId}/narrative`).then(r => r.data)
 
+// --- ZD-1 Zero Day Research (analyst/admin only, not client-scoped) ---
+export const listResearchTargets = () => api.get('/zero-day/targets').then(r => r.data)
+export const createResearchTarget = (payload) => api.post('/zero-day/targets', payload).then(r => r.data)
+export const updateResearchTarget = (targetId, payload) => api.patch(`/zero-day/targets/${targetId}`, payload).then(r => r.data)
+export const deleteResearchTarget = (targetId) => api.delete(`/zero-day/targets/${targetId}`).then(r => r.data)
+
+export const listResearchFindings = (targetId) => api.get(`/zero-day/targets/${targetId}/findings`).then(r => r.data)
+export const createResearchFinding = (targetId, payload) => api.post(`/zero-day/targets/${targetId}/findings`, payload).then(r => r.data)
+export const updateResearchFinding = (targetId, findingId, payload) => api.patch(`/zero-day/targets/${targetId}/findings/${findingId}`, payload).then(r => r.data)
+export const uploadResearchPoc = (targetId, findingId, file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/zero-day/targets/${targetId}/findings/${findingId}/poc`, form).then(r => r.data)
+}
+export const lookupFindingCve = (findingId) => api.get(`/zero-day/findings/${findingId}/lookup-cve`).then(r => r.data)
+export const getFindingAdvisory = (findingId) => api.get(`/zero-day/findings/${findingId}/advisory`).then(r => r.data)
+export const submitFindingHackerOne = (findingId, payload) => api.post(`/zero-day/findings/${findingId}/submit/hackerone`, payload).then(r => r.data)
+export const submitFindingBugcrowd = (findingId, payload) => api.post(`/zero-day/findings/${findingId}/submit/bugcrowd`, payload).then(r => r.data)
+export const publishFindingAdvisory = (findingId, payload) => api.post(`/zero-day/findings/${findingId}/publish-advisory`, payload).then(r => r.data)
+
+export const listFuzzingJobs = (targetId) => api.get(`/zero-day/targets/${targetId}/fuzzing-jobs`).then(r => r.data)
+export const createFuzzingJob = (targetId, payload) => api.post(`/zero-day/targets/${targetId}/fuzzing-jobs`, payload).then(r => r.data)
+export const updateFuzzingJob = (targetId, jobId, payload) => api.patch(`/zero-day/targets/${targetId}/fuzzing-jobs/${jobId}`, payload).then(r => r.data)
+
 // Authenticated file downloads must go through axios (so the Bearer token
 // header is attached) rather than a plain <a href> -- this app has no
 // cookie-based session, so a bare anchor tag hitting an authenticated
