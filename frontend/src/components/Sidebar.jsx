@@ -25,7 +25,7 @@ export default function Sidebar({ user, onLogout }) {
         <h1 className="text-lg font-semibold mt-1">Security Portal</h1>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-1">
         {isStaff && <NavLink to="/" end className={navItem}>All Clients</NavLink>}
 
         {clientId && (

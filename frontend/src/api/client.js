@@ -32,6 +32,10 @@ export const listClients = () => api.get('/clients').then(r => r.data)
 export const getClient = (id) => api.get(`/clients/${id}`).then(r => r.data)
 export const createClient = (payload) => api.post('/clients', payload).then(r => r.data)
 
+export const listClientUsers = (clientId) => api.get(`/clients/${clientId}/users`).then(r => r.data)
+export const createClientUser = (clientId, payload) => api.post(`/clients/${clientId}/users`, payload).then(r => r.data)
+export const updateClientUser = (clientId, userId, payload) => api.patch(`/clients/${clientId}/users/${userId}`, payload).then(r => r.data)
+
 export const listAssets = (clientId) => api.get(`/clients/${clientId}/assets`).then(r => r.data)
 export const listScans = (clientId) => api.get(`/clients/${clientId}/scans`).then(r => r.data)
 export const triggerSubdomainEnum = (clientId) => api.post(`/clients/${clientId}/scans/subdomain-enum`).then(r => r.data)
