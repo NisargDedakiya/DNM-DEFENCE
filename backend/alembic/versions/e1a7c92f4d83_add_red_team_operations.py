@@ -20,8 +20,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_table(
         'red_team_operations',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
         sa.Column('name', sa.String(length=255), nullable=False),
         sa.Column('objective', sa.Text(), nullable=True),
         sa.Column('threat_actor', sa.String(length=255), nullable=True),
@@ -33,8 +33,8 @@ def upgrade() -> None:
     )
     op.create_table(
         'red_team_timeline_entries',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('operation_id', sa.String(), sa.ForeignKey('red_team_operations.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('operation_id', sa.UUID(as_uuid=False), sa.ForeignKey('red_team_operations.id'), nullable=False, index=True),
         sa.Column('timestamp', sa.DateTime(), nullable=False),
         sa.Column('phase', sa.String(length=30), nullable=False),
         sa.Column('action', sa.Text(), nullable=False),
@@ -48,8 +48,8 @@ def upgrade() -> None:
     )
     op.create_table(
         'red_team_implants',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('operation_id', sa.String(), sa.ForeignKey('red_team_operations.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('operation_id', sa.UUID(as_uuid=False), sa.ForeignKey('red_team_operations.id'), nullable=False, index=True),
         sa.Column('host', sa.String(length=255), nullable=False),
         sa.Column('ip_address', sa.String(length=64), nullable=True),
         sa.Column('username', sa.String(length=255), nullable=True),
@@ -61,8 +61,8 @@ def upgrade() -> None:
     )
     op.create_table(
         'red_team_infrastructure',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('operation_id', sa.String(), sa.ForeignKey('red_team_operations.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('operation_id', sa.UUID(as_uuid=False), sa.ForeignKey('red_team_operations.id'), nullable=False, index=True),
         sa.Column('infra_type', sa.String(length=30), nullable=False),
         sa.Column('identifier', sa.String(length=255), nullable=False),
         sa.Column('provider', sa.String(length=255), nullable=True),

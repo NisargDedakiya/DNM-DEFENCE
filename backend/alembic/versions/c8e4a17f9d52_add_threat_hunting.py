@@ -20,7 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_table(
         'hunt_hypotheses',
-        sa.Column('id', sa.String(), primary_key=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
         sa.Column('title', sa.String(length=255), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
         sa.Column('attack_technique', sa.String(length=20), nullable=True),
@@ -34,10 +34,10 @@ def upgrade() -> None:
     )
     op.create_table(
         'hunt_operations',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
-        sa.Column('hypothesis_id', sa.String(), sa.ForeignKey('hunt_hypotheses.id'), nullable=False, index=True),
-        sa.Column('analyst_id', sa.String(), sa.ForeignKey('users.id'), nullable=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('hypothesis_id', sa.UUID(as_uuid=False), sa.ForeignKey('hunt_hypotheses.id'), nullable=False, index=True),
+        sa.Column('analyst_id', sa.UUID(as_uuid=False), sa.ForeignKey('users.id'), nullable=True),
         sa.Column('status', sa.String(length=20), nullable=True),
         sa.Column('started_at', sa.DateTime(), nullable=True),
         sa.Column('completed_at', sa.DateTime(), nullable=True),
@@ -46,8 +46,8 @@ def upgrade() -> None:
     )
     op.create_table(
         'hunt_findings',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('hunt_id', sa.String(), sa.ForeignKey('hunt_operations.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('hunt_id', sa.UUID(as_uuid=False), sa.ForeignKey('hunt_operations.id'), nullable=False, index=True),
         sa.Column('severity', sa.String(length=20), nullable=True),
         sa.Column('title', sa.String(length=255), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),

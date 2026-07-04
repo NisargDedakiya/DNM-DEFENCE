@@ -20,8 +20,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_table(
         'research_targets',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=True, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=True, index=True),
         sa.Column('name', sa.String(length=255), nullable=False),
         sa.Column('vendor', sa.String(length=255), nullable=True),
         sa.Column('version', sa.String(length=100), nullable=True),
@@ -38,8 +38,8 @@ def upgrade() -> None:
     )
     op.create_table(
         'research_findings',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('target_id', sa.String(), sa.ForeignKey('research_targets.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('target_id', sa.UUID(as_uuid=False), sa.ForeignKey('research_targets.id'), nullable=False, index=True),
         sa.Column('title', sa.String(length=255), nullable=False),
         sa.Column('cve_id', sa.String(length=20), nullable=True, index=True),
         sa.Column('cvss_score', sa.Float(), nullable=True),
@@ -57,8 +57,8 @@ def upgrade() -> None:
     )
     op.create_table(
         'fuzzing_jobs',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('target_id', sa.String(), sa.ForeignKey('research_targets.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('target_id', sa.UUID(as_uuid=False), sa.ForeignKey('research_targets.id'), nullable=False, index=True),
         sa.Column('fuzzer', sa.String(length=50), nullable=False),
         sa.Column('target_binary_path', sa.String(length=500), nullable=True),
         sa.Column('corpus_path', sa.String(length=500), nullable=True),

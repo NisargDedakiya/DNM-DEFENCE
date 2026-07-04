@@ -20,8 +20,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_table(
         'firmware_analysis_jobs',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
         sa.Column('original_filename', sa.String(length=255), nullable=True),
         sa.Column('file_path', sa.String(length=500), nullable=True),
         sa.Column('status', sa.String(length=20), nullable=True),

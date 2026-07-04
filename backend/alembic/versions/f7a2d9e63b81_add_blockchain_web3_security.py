@@ -20,8 +20,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_table(
         'smart_contract_audits',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
         sa.Column('contract_name', sa.String(length=255), nullable=True),
         sa.Column('contract_source', sa.Text(), nullable=True),
         sa.Column('network', sa.String(length=50), nullable=True),
@@ -35,8 +35,8 @@ def upgrade() -> None:
 
     op.create_table(
         'onchain_monitors',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
         sa.Column('contract_address', sa.String(length=255), nullable=False),
         sa.Column('network', sa.String(length=50), nullable=True),
         sa.Column('alert_thresholds', sa.JSON()),

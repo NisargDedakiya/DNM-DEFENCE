@@ -20,8 +20,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_table(
         'dfir_cases',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
         sa.Column('case_number', sa.String(length=50), nullable=False, unique=True),
         sa.Column('incident_type', sa.String(length=255), nullable=True),
         sa.Column('severity', sa.String(length=20), nullable=True),
@@ -37,8 +37,8 @@ def upgrade() -> None:
     )
     op.create_table(
         'dfir_evidence',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('case_id', sa.String(), sa.ForeignKey('dfir_cases.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('case_id', sa.UUID(as_uuid=False), sa.ForeignKey('dfir_cases.id'), nullable=False, index=True),
         sa.Column('evidence_type', sa.String(length=100), nullable=True),
         sa.Column('source_host', sa.String(length=255), nullable=True),
         sa.Column('acquisition_tool', sa.String(length=255), nullable=True),
@@ -47,13 +47,13 @@ def upgrade() -> None:
         sa.Column('file_size_bytes', sa.Integer(), nullable=True),
         sa.Column('storage_path', sa.String(length=500), nullable=True),
         sa.Column('acquired_at', sa.DateTime()),
-        sa.Column('acquired_by', sa.String(), sa.ForeignKey('users.id'), nullable=True),
+        sa.Column('acquired_by', sa.UUID(as_uuid=False), sa.ForeignKey('users.id'), nullable=True),
         sa.Column('chain_of_custody', sa.JSON(), nullable=True),
     )
     op.create_table(
         'dfir_iocs',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('case_id', sa.String(), sa.ForeignKey('dfir_cases.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('case_id', sa.UUID(as_uuid=False), sa.ForeignKey('dfir_cases.id'), nullable=False, index=True),
         sa.Column('ioc_type', sa.String(length=50), nullable=False),
         sa.Column('value', sa.String(length=500), nullable=False),
         sa.Column('confidence', sa.String(length=20), nullable=True),
@@ -64,8 +64,8 @@ def upgrade() -> None:
     )
     op.create_table(
         'dfir_timeline_entries',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('case_id', sa.String(), sa.ForeignKey('dfir_cases.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('case_id', sa.UUID(as_uuid=False), sa.ForeignKey('dfir_cases.id'), nullable=False, index=True),
         sa.Column('timestamp', sa.DateTime(), nullable=False),
         sa.Column('event_description', sa.Text(), nullable=False),
         sa.Column('source', sa.String(length=255), nullable=True),
@@ -74,8 +74,8 @@ def upgrade() -> None:
     )
     op.create_table(
         'ir_retainers',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('client_id', sa.String(), sa.ForeignKey('clients.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('client_id', sa.UUID(as_uuid=False), sa.ForeignKey('clients.id'), nullable=False, index=True),
         sa.Column('tier', sa.String(length=50), nullable=True),
         sa.Column('hours_included_per_year', sa.Integer(), nullable=True),
         sa.Column('hours_used', sa.Integer(), nullable=True),
@@ -84,8 +84,8 @@ def upgrade() -> None:
     )
     op.create_table(
         'dfir_log_analysis_jobs',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('case_id', sa.String(), sa.ForeignKey('dfir_cases.id'), nullable=False, index=True),
+        sa.Column('id', sa.UUID(as_uuid=False), primary_key=True),
+        sa.Column('case_id', sa.UUID(as_uuid=False), sa.ForeignKey('dfir_cases.id'), nullable=False, index=True),
         sa.Column('original_filename', sa.String(length=255), nullable=True),
         sa.Column('log_type', sa.String(length=50), nullable=True),
         sa.Column('events_count', sa.Integer(), nullable=True),

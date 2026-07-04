@@ -27,6 +27,7 @@ nmap) run as subprocesses, Claude for AI-generated report content.
 - [Project structure](#project-structure)
 - [Security notice](#security-notice)
 - [Expanded services (Social Engineering, Mobile, Web3, AI/ML, DevSecOps)](#whats-new--track1-expanded-services-5-new-services-16-tools)
+- [Advanced services (Red Team, Zero Day Research, DFIR, Hardware/IoT, Threat Hunting)](#whats-new--track1-advanced-services-5-new-services-6-tools)
 
 ---
 
@@ -111,6 +112,23 @@ them:
 `echidna` (Solidity property-based fuzzing) is intentionally **not**
 auto-invoked — it needs contract-specific invariant test functions that
 can't be generically generated, so it stays a manual analyst step.
+
+**Advanced services** (Red Team Operations, Zero Day Research, DFIR,
+Hardware/IoT Security, Threat Hunting — see
+[What's new — Track1 Advanced Services](#whats-new--track1-advanced-services-5-new-services-6-tools)):
+`python-evtx` (DFIR-2 Windows EVTX parsing) and `binwalk` (IOT-1 firmware
+extraction) are both already in `backend/requirements.txt`. A few more
+*optional* tools degrade gracefully if you don't install them:
+
+| Tool | Used by | Install |
+|---|---|---|
+| `checksec` | IOT-1 (binary hardening enrichment on extracted ELF files) | see [slimm609/checksec.sh](https://github.com/slimm609/checksec.sh) |
+| `AFL++` / `LibFuzzer` / `Boofuzz` | ZD-1 (fuzzing jobs are analyst-updated tracking records — this platform does not orchestrate live fuzzing, see below) | run these yourself; log status/crashes into the FuzzingJob tracker |
+
+Note: the `binwalk` package on PyPI ships without its native extraction
+core on some platforms — if extraction genuinely isn't available on your
+system, IOT-1 automatically falls back to scanning the raw firmware
+bytes directly rather than failing the analysis.
 
 ---
 
@@ -1110,6 +1128,191 @@ client page, for anyone.** Fixed by reading `clientId` from
 everywhere, unlike `useParams()`), and confirmed with a real click-
 through: sidebar renders correctly and every link navigates.
 
+## What's new — Track1 Advanced Services (5 new services, 6 tools)
+
+A third spec document (`Track1_Advanced_Services.docx`) defines 5 more
+service lines beyond the core platform and the Expanded Services pass
+above: Red Team Operations, Zero Day Research & Responsible Disclosure,
+Digital Forensics & Incident Response, Hardware & IoT Security Testing,
+and Continuous Threat Hunting — 6 custom tools total (RT-1, ZD-1,
+DFIR-1, DFIR-2, IOT-1, TH-1).
+
+**This entire phase uses a different access model than everything above
+it.** Every tool in this spec doc is labeled `[ANALYST]`/`[AUTO]` — never
+`[CLIENT]` — and two of the six are explicitly captioned "Internal Only"
+/ "Analyst Only" in the doc's own UI mockups. So unlike every router
+built in the first two spec passes (which use `require_client_access`,
+letting a client see their own data), **every router in this phase uses
+`require_staff`.** A client-role login gets a 403 on all six tools and
+never sees the "Advanced Services" sidebar section at all — this is
+covered by an explicit test per router, not just reliance on the shared
+dependency, since it's the one place the access model differs from
+everything else in the codebase.
+
+Two of the six tools needed an explicit scope boundary, the same way the
+first two spec passes handled Tor/dark-web crawling and LinkedIn
+scraping — built where it's genuinely code, not stretched into
+something riskier than the platform should be:
+
+- **RT-1 (Red Team Operations) is a tracking/logging tool only.** It
+  does not run a C2 server or execute attacks — a human operator runs
+  real tooling (Cobalt Strike, Havoc, Sliver, etc.) outside this
+  platform and logs what happened here afterward: operation workspace,
+  timeline, implant/infrastructure trackers, ATT&CK tagging, AI
+  narrative + purple-team debrief export. This mirrors how real-world
+  red-team tracking tools (Ghostwriter, RedELK) actually work.
+- **ZD-1 (Zero Day Research) is a tracking platform + optional local
+  fuzz hook.** Research-target board, disclosure tracker with a real
+  90-day countdown, real CVE/NVD API v2 lookups, HackerOne/Bugcrowd
+  submission tracking, GitHub Security Advisory publishing, Claude
+  disclosure-advisory drafting. `FuzzingJob` is an analyst-updated
+  tracking record (status, crashes found) for a campaign run with
+  AFL++/LibFuzzer/Boofuzz *outside* this platform — not a live fuzzing
+  orchestration engine, which would be a substantially more dual-use-
+  sensitive build than the tracking system around it.
+
+Everything else (DFIR case management + log analysis, firmware
+analysis, threat hunting) is unambiguously legitimate defensive/tracking
+tooling and gets a full build, reusing existing infrastructure
+throughout: `app/core/crypto.py`'s Fernet encryption (already used for
+`CloudAccount`) for per-client SIEM/EDR credentials, `threat_intel.py`'s
+Shodan/Censys/blocklist checks for IoC enrichment, `devsecops.py`'s
+GitHub client for Security Advisory publishing, and a new shared
+`app/services/attack_framework.py` (bundled MITRE ATT&CK reference + a
+best-effort live technique-name lookup against MITRE's own public `cti`
+GitHub JSON + real ATT&CK Navigator layer export) used by both RT-1's
+and TH-1's heatmaps instead of duplicating that format logic twice.
+
+### Service 1 — Red Team Operations (RT-1)
+
+- **Operation workspace** (`services/red_team.py`, `api/red_team.py`) —
+  operations, a technique-tagged action timeline, implant tracker,
+  infrastructure tracker (C2 servers/phishing domains/redirectors/
+  payload hosts).
+- **ATT&CK heatmap** — builds a real Navigator-format JSON layer from
+  the operation's own logged, technique-tagged timeline entries.
+- **C2 infrastructure exposure check** — reuses Module 3's Shodan lookup
+  to verify the team's own C2/redirector IPs aren't already
+  fingerprinted, pointed at the operator's own infra instead of a
+  target's.
+- **AI attack narrative + purple-team Markdown export** — Claude writes
+  the narrative strictly from the real logged timeline; the purple-team
+  export is a plain data table for the debrief session, no AI involved.
+
+### Service 2 — Zero Day Research & Responsible Disclosure (ZD-1)
+
+- **Research target + finding tracker** (`services/zero_day.py`,
+  `api/zero_day.py`) — not client-scoped by default (`client_id` is
+  nullable: null means independent research, set means a
+  client-commissioned engagement), so this is a top-level
+  `/api/zero-day` router rather than nested under `/clients/{id}`.
+- **Real CVE/NVD lookups** — MITRE's CVE Services API for a lightweight
+  existence check, NVD API v2 for full CVSS/description detail.
+- **Disclosure deadline countdown** — a standard 90-day, Project-Zero-
+  style countdown from the vendor-notified date, surfaced directly on
+  every finding.
+- **HackerOne/Bugcrowd submission tracking + GitHub Security Advisory
+  publishing** — real API calls, both key-gated and degrading
+  gracefully; GHSA publishing reuses DSO-1's PyGithub client.
+- **Claude-drafted disclosure advisories**, grounded strictly in the
+  finding's own recorded fields.
+
+### Service 3 — Digital Forensics & Incident Response (DFIR-1 + DFIR-2)
+
+- **Case manager** (`services/dfir.py`, `api/dfir.py`) — cases,
+  evidence, IoCs, a forensic timeline, and an IR retainer dashboard.
+- **Evidence integrity** — MD5 + SHA256 are always computed server-side
+  from the uploaded bytes, never trusted from the client, with an
+  append-only chain-of-custody log (no prior entry is ever rewritten or
+  removed).
+- **IoC export** — real STIX 2.1 bundles, Sigma detection rules, or CSV.
+- **Forensic log analyzer** (`services/dfir_log_analysis.py`) — parses
+  AWS CloudTrail, Azure Activity Log, and GCP Audit Log (JSON), syslog/
+  nginx-apache-combined/Palo Alto CSV (regex), and Windows EVTX (via
+  `python-evtx`) into one normalized event shape, then runs heuristic
+  auth-anomaly detection (repeated failures, off-hours access) and
+  regex-based IoC extraction uniformly over all of them.
+- **Executive/technical reports + log narratives** — Claude-written,
+  grounded strictly in the case's own recorded evidence/IoCs/timeline or
+  the log analyzer's own parsed events — the same "do not invent"
+  discipline as every prior AI narrative function in this codebase.
+
+### Service 4 — Hardware & IoT Security Testing (IOT-1)
+
+- **Firmware analyzer** (`services/firmware_analysis.py`,
+  `api/firmware.py`) — upload-then-`/analyze`, same two-step pattern as
+  MOB-1.
+- **binwalk extraction** degrades gracefully not just on a missing
+  binary but on *any* non-zero exit or timeout (a broken/incompatible
+  local binwalk install shouldn't crash the whole analysis) — falls back
+  to scanning the raw firmware bytes directly instead of the extracted
+  filesystem.
+- **Component identification** — signature-matches BusyBox, Linux
+  kernel, OpenSSL, Dropbear, uClibc, lighttpd, and U-Boot version
+  strings out of extracted (or raw) text.
+- **Secret scanning** reuses `mobile_sast.py`'s `SECRET_PATTERNS`
+  directly rather than a second copy of the same regex set.
+- **Real NVD API v2 CVE matching** per identified component, plus
+  optional `checksec` binary-hardening enrichment on any extracted ELF
+  files.
+
+### Service 5 — Continuous Threat Hunting (TH-1)
+
+- **Shared hypothesis library** (`services/threat_hunting.py`,
+  `api/threat_hunting.py`) — not client-scoped, seeded with 20 starter
+  hypotheses spanning common ATT&CK tactics, plus a Claude-generate
+  endpoint for industry-tailored hypotheses.
+- **Client-scoped hunt operations** with a findings tracker.
+- **Real SIEM/EDR querying** against a client's own registered
+  connection (same Fernet-encrypted-credential pattern as
+  `CloudAccount`) — real Elasticsearch `_search`, Splunk search-export,
+  and CrowdStrike OAuth2 + Detections API calls, all degrading to an
+  empty result (never raising) if the connection is unconfigured or
+  temporarily unreachable.
+- **IoC enrichment** reuses Module 3's Shodan/Censys/blocklist checks
+  directly instead of a third implementation of the same lookups.
+- **ATT&CK coverage heatmap** reuses `attack_framework.py`'s Navigator
+  layer export, built from completed hunts' underlying hypothesis
+  techniques.
+
+**Verified, not just written**: 414/414 backend tests pass (up from 274
+at the end of the Expanded Services pass — 140 new tests across this
+phase, including an explicit client-role-gets-403 test for every one of
+the 6 new routers), every new Alembic migration applies and downgrades
+cleanly (5 migrations: shared `SiemConnection`, RT-1, ZD-1, DFIR, IOT-1,
+TH-1), and the frontend builds clean with all 5 new pages (RT-1 and
+TH-1 share none, ZD-1 is a global page, the rest are per-client) wired
+into routing and a new "Advanced Services" sidebar section gated
+`isStaff && clientId` (or just `isStaff` for ZD-1's global page) —
+invisible to the client role entirely, not just inaccessible.
+
+A full local stack (Postgres + Redis + backend + Celery worker +
+frontend, run directly, no Docker daemon in this environment) plus a
+real Chromium browser pass caught one genuine, pre-existing bug that
+the sqlite-backed test suite structurally can't see: every Alembic
+migration since the Expanded Services pass (`d4e7b1a29f63` onward —
+SE-1/SE-2/SE-3 through this phase's own 5 new migrations) declared
+`id` primary keys and foreign-key columns referencing `clients.id`/
+`users.id`/sibling tables as `sa.String()`, while every ORM model in
+`app/models/models.py` declares that same column as
+`Column(UUID(as_uuid=False), ...)`. sqlite doesn't enforce column
+affinity strictly enough to notice; a real, freshly-created Postgres
+database does — `alembic upgrade head` failed outright on the very
+first mismatched foreign key (`osint_profiles.client_id`), and even
+after stamping past that, ordinary ORM calls like `db.refresh()` on any
+affected table raised `operator does not exist: character varying =
+uuid`, caught live by a Playwright pass that created a Red Team
+Operation through the real UI and hit a 500. Fixed by changing every
+affected `sa.String()` column declaration in the 11 affected migration
+files to `sa.UUID(as_uuid=False)`, matching what the ORM models
+actually declare — re-verified end to end: `alembic upgrade head` /
+`downgrade base` against a genuinely empty Postgres database, real
+create-then-refresh calls against every affected table (both this
+phase's new tables and the pre-existing Expanded Services ones), and
+the same Playwright script re-run clean (operation creation succeeds,
+renders in the UI) plus the full staff/client access-boundary matrix
+(18 checks: sidebar visibility, page loads, and 403s) all passing.
+
 ## Roadmap
 
 Every module and feature from the Track 1 spec has a real implementation.
@@ -1145,6 +1348,20 @@ The one exception is genuinely outside pure code (see above):
 12. ✅ Service 5 (Expanded) — DevSecOps Pipeline & CI/CD Security
     (pipeline gates, scanner-output triage, developer scorecard, IaC
     scanning)
+13. ✅ Service 1 (Advanced) — Red Team Operations (tracking/logging
+    workspace, ATT&CK heatmap, C2 exposure check, AI narrative +
+    purple-team export — see above for the tracking-only scope boundary)
+14. ✅ Service 2 (Advanced) — Zero Day Research & Responsible Disclosure
+    (research/finding tracker, real CVE/NVD lookups, 90-day disclosure
+    countdown, bounty submission + GHSA publishing)
+15. ✅ Service 3 (Advanced) — DFIR (case manager w/ chain-of-custody
+    evidence hashing, STIX/Sigma/CSV IoC export, multi-format forensic
+    log analyzer incl. Windows EVTX)
+16. ✅ Service 4 (Advanced) — Hardware & IoT Security Testing (firmware
+    extraction, component ID, secret scanning, real NVD CVE matching)
+17. ✅ Service 5 (Advanced) — Continuous Threat Hunting (shared
+    hypothesis library, real SIEM/EDR querying, IoC enrichment, ATT&CK
+    coverage heatmap)
 
 Each module maps directly to a file in `app/services/` and a set of Celery
 tasks in `app/workers/tasks.py` — follow the pattern already set by
