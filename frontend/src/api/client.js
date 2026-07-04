@@ -278,6 +278,27 @@ export const uploadFirmware = (clientId, file) => {
 }
 export const analyzeFirmwareScan = (clientId, scanId) => api.post(`/clients/${clientId}/firmware-scans/${scanId}/analyze`).then(r => r.data)
 
+// --- TH-1 Continuous Threat Hunting (analyst/admin only) ---
+export const listHuntHypotheses = () => api.get('/threat-hunting/hypotheses').then(r => r.data)
+export const seedHuntHypotheses = () => api.post('/threat-hunting/hypotheses/seed').then(r => r.data)
+export const createHuntHypothesis = (payload) => api.post('/threat-hunting/hypotheses', payload).then(r => r.data)
+export const generateHuntHypothesis = (payload) => api.post('/threat-hunting/hypotheses/generate', payload).then(r => r.data)
+
+export const listHunts = (clientId) => api.get(`/clients/${clientId}/threat-hunting/hunts`).then(r => r.data)
+export const createHunt = (clientId, payload) => api.post(`/clients/${clientId}/threat-hunting/hunts`, payload).then(r => r.data)
+export const updateHunt = (clientId, huntId, payload) => api.patch(`/clients/${clientId}/threat-hunting/hunts/${huntId}`, payload).then(r => r.data)
+
+export const listHuntFindings = (clientId, huntId) => api.get(`/clients/${clientId}/threat-hunting/hunts/${huntId}/findings`).then(r => r.data)
+export const addHuntFinding = (clientId, huntId, payload) => api.post(`/clients/${clientId}/threat-hunting/hunts/${huntId}/findings`, payload).then(r => r.data)
+export const getHuntReport = (clientId, huntId) => api.get(`/clients/${clientId}/threat-hunting/hunts/${huntId}/report`).then(r => r.data)
+
+export const getThreatHuntingCoverage = (clientId) => api.get(`/clients/${clientId}/threat-hunting/coverage`).then(r => r.data)
+export const enrichIoc = (clientId, payload) => api.post(`/clients/${clientId}/threat-hunting/enrich-ioc`, payload).then(r => r.data)
+
+export const listSiemConnections = (clientId) => api.get(`/clients/${clientId}/threat-hunting/siem-connections`).then(r => r.data)
+export const registerSiemConnection = (clientId, payload) => api.post(`/clients/${clientId}/threat-hunting/siem-connections`, payload).then(r => r.data)
+export const querySiemConnection = (clientId, connectionId, payload) => api.post(`/clients/${clientId}/threat-hunting/siem-connections/${connectionId}/query`, payload).then(r => r.data)
+
 // Authenticated file downloads must go through axios (so the Bearer token
 // header is attached) rather than a plain <a href> -- this app has no
 // cookie-based session, so a bare anchor tag hitting an authenticated

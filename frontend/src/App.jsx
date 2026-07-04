@@ -18,6 +18,7 @@ import RedTeam from './pages/RedTeam.jsx'
 import ZeroDayResearch from './pages/ZeroDayResearch.jsx'
 import DFIR from './pages/DFIR.jsx'
 import HardwareIoT from './pages/HardwareIoT.jsx'
+import ThreatHunting from './pages/ThreatHunting.jsx'
 import { getMe } from './api/client.js'
 
 export default function App() {
@@ -64,6 +65,7 @@ export default function App() {
           <Route path="/clients/:clientId/red-team" element={<RedTeam />} />
           <Route path="/clients/:clientId/dfir" element={<DFIR />} />
           <Route path="/clients/:clientId/hardware-iot" element={<HardwareIoT />} />
+          <Route path="/clients/:clientId/threat-hunting" element={<ThreatHunting />} />
           <Route path="/clients/:clientId/reports" element={<Reports />} />
           <Route path="*" element={<Navigate to={homePath} replace />} />
         </Routes>

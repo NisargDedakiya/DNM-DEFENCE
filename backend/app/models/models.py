@@ -1039,3 +1039,76 @@ class FirmwareAnalysisJob(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     client = relationship("Client")
+
+
+# --- Track1_Advanced_Services.docx — TH-1 Continuous Threat Hunting ---
+
+class HuntHypothesisSource(str, enum.Enum):
+    manual = "manual"
+    ai_generated = "ai_generated"
+    cti_feed = "cti_feed"
+
+
+class HuntOperationStatus(str, enum.Enum):
+    planned = "planned"
+    active = "active"
+    complete = "complete"
+
+
+class HuntOutcome(str, enum.Enum):
+    threat_found = "threat_found"
+    negative = "negative"
+    inconclusive = "inconclusive"
+
+
+class HuntHypothesis(Base):
+    """TH-1 — a reusable hunt hypothesis. NOT client-scoped: this is a shared library analysts draw hunts from."""
+    __tablename__ = "hunt_hypotheses"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    attack_technique = Column(String(20), nullable=True)
+    data_sources = Column(JSON, default=list)  # e.g. ["EDR", "DNS logs", "auth logs"]
+    industries = Column(JSON, default=list)  # e.g. ["fintech", "healthcare"] -- empty means industry-agnostic
+    priority = Column(String(20), default="medium")
+    hunt_count = Column(Integer, default=0)
+    last_positive_at = Column(DateTime, nullable=True)
+    source = Column(Enum(HuntHypothesisSource), default=HuntHypothesisSource.manual)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class HuntOperation(Base):
+    """TH-1 — one client-scoped hunt run against a hypothesis from the shared library."""
+    __tablename__ = "hunt_operations"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    hypothesis_id = Column(UUID(as_uuid=False), ForeignKey("hunt_hypotheses.id"), nullable=False, index=True)
+    analyst_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+    status = Column(Enum(HuntOperationStatus), default=HuntOperationStatus.planned)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    outcome = Column(Enum(HuntOutcome), nullable=True)
+    hours_spent = Column(Integer, default=0)
+
+    client = relationship("Client")
+    hypothesis = relationship("HuntHypothesis")
+
+
+class HuntFinding(Base):
+    """TH-1 — a finding surfaced during a hunt operation."""
+    __tablename__ = "hunt_findings"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    hunt_id = Column(UUID(as_uuid=False), ForeignKey("hunt_operations.id"), nullable=False, index=True)
+    severity = Column(Enum(Severity), default=Severity.medium)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    evidence = Column(JSON, default=dict)
+    iocs = Column(JSON, default=list)  # list[{"ioc_type": ..., "value": ...}]
+    attack_technique_id = Column(String(20), nullable=True)
+    confirmed = Column(Boolean, default=False)
+    escalated_to_ir = Column(Boolean, default=False)
+
+    hunt = relationship("HuntOperation")
