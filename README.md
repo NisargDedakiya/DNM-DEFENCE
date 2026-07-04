@@ -36,12 +36,25 @@ nmap) run as subprocesses, Claude for AI-generated report content.
 ### Option A: Docker (recommended)
 
 This is the easiest path — Docker builds and installs every tool listed in
-Option B for you. All you need on your machine is:
+Option B for you, **including every optional deeper-enrichment tool**
+(`apktool`/`jadx`/`trufflehog` for MOB-1, `mythril` for WEB3-1,
+`kube-score`/`kubesec`/`hadolint` for DSO-4, `checksec` for IOT-1, plus a
+working `binwalk` CLI for IOT-1 — see `backend/Dockerfile`'s "Optional
+deeper-enrichment tools" section). All you need on your machine is:
 
 | Tool | Version | Check with |
 |---|---|---|
 | [Docker Engine](https://docs.docker.com/engine/install/) | 24+ | `docker --version` |
 | [Docker Compose](https://docs.docker.com/compose/install/) (plugin, `docker compose`, not the old standalone `docker-compose`) | v2 | `docker compose version` |
+
+Each optional tool installs independently and non-fatally — a stale
+release URL for any one of them logs a build-time warning and moves on
+rather than failing the whole image, matching the same graceful-degrade
+philosophy those tools already have at runtime (the app just skips that
+one signal if the tool isn't present). Pass
+`docker compose build --build-arg INSTALL_OPTIONAL_TOOLS=false` (or set it
+in a `docker-compose.override.yml`) if you'd rather skip all of them for a
+smaller, faster image and only use the core (always-installed) tools.
 
 ### Option B: Manual / local development setup
 
@@ -100,7 +113,7 @@ already in `backend/requirements.txt` (`androguard`, `slither-analyzer`,
 `semgrep`, `web3`, `checkov`, `openai`, `bleach`, `jsonschema`) — nothing
 extra to install for the default path. A few *optional* enrichment tools
 degrade gracefully (log a warning, skip that signal) if you don't install
-them:
+them (Option A/Docker installs all of these for you automatically):
 
 | Tool | Used by | Install |
 |---|---|---|
@@ -118,7 +131,9 @@ Hardware/IoT Security, Threat Hunting — see
 [What's new — Track1 Advanced Services](#whats-new--track1-advanced-services-5-new-services-6-tools)):
 `python-evtx` (DFIR-2 Windows EVTX parsing) and `binwalk` (IOT-1 firmware
 extraction) are both already in `backend/requirements.txt`. A few more
-*optional* tools degrade gracefully if you don't install them:
+*optional* tools degrade gracefully if you don't install them (Option A/
+Docker installs `checksec` and a working `binwalk` CLI for you
+automatically — see below):
 
 | Tool | Used by | Install |
 |---|---|---|
