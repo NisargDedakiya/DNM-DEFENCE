@@ -1112,3 +1112,20 @@ class HuntFinding(Base):
     escalated_to_ir = Column(Boolean, default=False)
 
     hunt = relationship("HuntOperation")
+
+
+class AlertLog(Base):
+    """Persisted record of every alert notification this platform has attempted to send (Module 5.2/5.3, SLA escalation, DSO-2 triage digest) — exportable so a client/analyst can download the send history."""
+    __tablename__ = "alert_logs"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    client_id = Column(UUID(as_uuid=False), ForeignKey("clients.id"), nullable=False, index=True)
+    finding_id = Column(UUID(as_uuid=False), ForeignKey("findings.id"), nullable=True)
+    alert_type = Column(String(50), nullable=False)  # finding_alert | sla_breach | weekly_threat_digest | weekly_triage_digest
+    subject = Column(String(500), nullable=False)
+    channel_email_sent = Column(Boolean, default=False)
+    channel_slack_sent = Column(Boolean, default=False)
+    sent_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client")
+    finding = relationship("Finding")

@@ -5,6 +5,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import {
   getClient, getMe, listFindings, listAssets, listScans, getFindingsTrend,
   triggerSubdomainEnum, triggerVulnScan, triggerDarkWebScan,
+  listAlertLog, downloadAuthenticatedFile,
 } from '../api/client.js'
 import RiskScoreRadial from '../components/RiskScoreRadial.jsx'
 import SeverityBadge from '../components/SeverityBadge.jsx'
@@ -28,6 +29,7 @@ export default function Dashboard() {
     queryKey: ['findings-trend', clientId, trendMonths],
     queryFn: () => getFindingsTrend(clientId, trendMonths),
   })
+  const { data: alertLog } = useQuery({ queryKey: ['alert-log', clientId], queryFn: () => listAlertLog(clientId) })
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['scans', clientId] })
   const runRecon = useMutation({ mutationFn: () => triggerSubdomainEnum(clientId), onSuccess: invalidate })
@@ -159,6 +161,36 @@ export default function Dashboard() {
         </div>
 
         <PentestWidget />
+      </div>
+
+      <div className="bg-panel border border-border rounded-lg p-6 mt-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-medium text-muted uppercase tracking-wide font-mono">Alert log</h3>
+            <p className="text-muted text-xs mt-1">Every alert/notification this platform has sent — critical finding alerts, SLA breach escalations, weekly digests.</p>
+          </div>
+          <button
+            onClick={() => downloadAuthenticatedFile(`/clients/${clientId}/alerts/export/csv`, `${client.name}-alert-log.csv`)}
+            className="text-xs px-3 py-1.5 rounded border border-border hover:border-signal/50 font-mono whitespace-nowrap"
+          >
+            Download CSV
+          </button>
+        </div>
+        <ul className="space-y-2">
+          {(!alertLog || alertLog.length === 0) && <li className="text-muted text-sm">No alerts sent yet.</li>}
+          {(alertLog || []).slice(0, 10).map((a) => (
+            <li key={a.id} className="flex items-center justify-between text-sm py-2 border-b border-border/60 last:border-0">
+              <div className="min-w-0">
+                <span className="truncate block">{a.subject}</span>
+                <span className="text-muted text-[10px] font-mono">{new Date(a.sent_at).toLocaleString()} · {a.alert_type.replace(/_/g, ' ')}</span>
+              </div>
+              <div className="flex gap-1.5 shrink-0 ml-3">
+                {a.channel_email_sent && <span className="text-[10px] px-1.5 py-0.5 rounded bg-panel2 font-mono">email</span>}
+                {a.channel_slack_sent && <span className="text-[10px] px-1.5 py-0.5 rounded bg-panel2 font-mono">slack</span>}
+              </div>
+            </li>
+          ))}
+        </ul>
       </div>
 
       {isStaff && (

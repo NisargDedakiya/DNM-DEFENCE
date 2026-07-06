@@ -99,3 +99,32 @@ def notify_sla_breach(client: Client, finding_title: str, severity: str, sla_dea
 def notify_weekly_digest(client: Client, digest_text: str) -> dict:
     subject = f"Weekly Threat Digest — {client.name}"
     return notify_client(client, subject, digest_text)
+
+
+def log_alert(db, client_id: str, alert_type: str, subject: str, result: dict, finding_id: str | None = None):
+    """Persists a record of a sent (or attempted) alert notification so it can be listed/exported later, regardless of whether any channel actually succeeded."""
+    from app.models.models import AlertLog
+
+    entry = AlertLog(
+        client_id=client_id, finding_id=finding_id, alert_type=alert_type, subject=subject,
+        channel_email_sent=bool(result.get("email")), channel_slack_sent=bool(result.get("slack")),
+    )
+    db.add(entry)
+    db.commit()
+    return entry
+
+
+def export_alert_log_csv(entries) -> str:
+    """CSV export of AlertLog rows for download — plain data, no AI involved."""
+    import csv
+    import io
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["sent_at", "alert_type", "subject", "finding_id", "email_sent", "slack_sent"])
+    for e in entries:
+        writer.writerow([
+            e.sent_at.isoformat() if e.sent_at else "", e.alert_type, e.subject,
+            e.finding_id or "", e.channel_email_sent, e.channel_slack_sent,
+        ])
+    return buf.getvalue()

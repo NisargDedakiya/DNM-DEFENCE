@@ -479,6 +479,8 @@ def draft_alert_for_finding(self, finding_id: str):
             result = notifications.notify_finding_alert(client, finding.title, finding.severity.value, draft)
             sent = result.get("email") or result.get("slack")
             logger.info(f"Alert for finding {finding_id} auto-sent: {result}")
+            subject = f"[{finding.severity.value.upper()}] Security alert — {finding.title}"
+            notifications.log_alert(db, client.id, "finding_alert", subject, result, finding_id=finding.id)
 
         return {"finding_id": finding_id, "draft": draft, "sent": sent}
     except Exception as exc:
@@ -511,7 +513,8 @@ def send_weekly_threat_digests():
 
             digest = ai_reports.generate_weekly_threat_digest(client, [f.title for f in recent], cve_hits, threat_intel_hits)
             logger.info(f"[{client.name}] Weekly threat digest:\n{digest}")
-            notifications.notify_weekly_digest(client, digest)
+            result = notifications.notify_weekly_digest(client, digest)
+            notifications.log_alert(db, client.id, "weekly_threat_digest", f"Weekly Threat Digest — {client.name}", result)
         return {"clients_processed": len(clients)}
     finally:
         db.close()
@@ -586,7 +589,8 @@ def check_sla_escalations():
             )
             client = db.query(Client).get(f.client_id)
             if client:
-                notifications.notify_sla_breach(client, f.title, f.severity.value, f.sla_deadline)
+                result = notifications.notify_sla_breach(client, f.title, f.severity.value, f.sla_deadline)
+                notifications.log_alert(db, client.id, "sla_breach", f"[SLA BREACH] {f.title}", result, finding_id=f.id)
             if f.severity in (Severity.critical, Severity.high):
                 draft_alert_for_finding.delay(f.id)
 
@@ -860,7 +864,8 @@ def send_weekly_triage_digests():
             ]
             digest = triage_service.generate_weekly_triage_digest(client.name, findings_this_week)
             logger.info(f"[{client.name}] Weekly DevSecOps triage digest:\n{digest}")
-            notifications.notify_weekly_digest(client, digest)
+            result = notifications.notify_weekly_digest(client, digest)
+            notifications.log_alert(db, client.id, "weekly_triage_digest", f"Weekly Threat Digest — {client.name}", result)
         return {"clients_processed": len(clients)}
     finally:
         db.close()
