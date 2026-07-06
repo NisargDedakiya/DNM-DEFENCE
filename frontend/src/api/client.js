@@ -299,6 +299,9 @@ export const listSiemConnections = (clientId) => api.get(`/clients/${clientId}/t
 export const registerSiemConnection = (clientId, payload) => api.post(`/clients/${clientId}/threat-hunting/siem-connections`, payload).then(r => r.data)
 export const querySiemConnection = (clientId, connectionId, payload) => api.post(`/clients/${clientId}/threat-hunting/siem-connections/${connectionId}/query`, payload).then(r => r.data)
 
+// --- Alert/notification send log (client-visible: findings alerts, SLA breaches, weekly digests) ---
+export const listAlertLog = (clientId) => api.get(`/clients/${clientId}/alerts`).then(r => r.data)
+
 // Authenticated file downloads must go through axios (so the Bearer token
 // header is attached) rather than a plain <a href> -- this app has no
 // cookie-based session, so a bare anchor tag hitting an authenticated

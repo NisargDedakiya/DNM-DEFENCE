@@ -162,6 +162,8 @@ def send_alert_now(client_id: str, finding_id: str, db: Session = Depends(get_db
         raise HTTPException(404, "Finding not found")
     draft = ai_reports.draft_alert_notification(finding)
     result = notifications.notify_finding_alert(client, finding.title, finding.severity.value, draft)
+    subject = f"[{finding.severity.value.upper()}] Security alert — {finding.title}"
+    notifications.log_alert(db, client.id, "finding_alert", subject, result, finding_id=finding.id)
     return {"draft": draft, "sent": result}
 
 
