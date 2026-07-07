@@ -5,14 +5,57 @@ dig, stdlib ssl for cert inspection) so there's no new heavy SDK to
 install for something this simple.
 """
 import logging
+import os
 import socket
 import ssl
 import subprocess
 from datetime import datetime
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
 SSL_EXPIRY_WARNING_DAYS = 30
+
+
+def _get_https_proxy_url() -> str | None:
+    """Reads the standard HTTPS_PROXY/ALL_PROXY env vars (same ones Go tools like subfinder/httpx/naabu already respect automatically). Only http:// CONNECT proxies are supported here, not socks5://."""
+    for var in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
+        value = os.environ.get(var)
+        if value and value.startswith("http://"):
+            return value
+    return None
+
+
+def _connect_via_proxy(proxy_url: str, hostname: str, port: int, timeout: int) -> socket.socket:
+    """Opens a raw TCP tunnel to hostname:port through an HTTP CONNECT proxy, so the environment's own network egress rules (which a browser transparently honors) apply to this check too."""
+    parsed = urlparse(proxy_url)
+    proxy_host, proxy_port = parsed.hostname, parsed.port or 80
+
+    sock = socket.create_connection((proxy_host, proxy_port), timeout=timeout)
+    connect_req = f"CONNECT {hostname}:{port} HTTP/1.1\r\nHost: {hostname}:{port}\r\n\r\n"
+    sock.sendall(connect_req.encode())
+
+    response = b""
+    sock.settimeout(timeout)
+    while b"\r\n\r\n" not in response:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        response += chunk
+
+    status_line = response.split(b"\r\n", 1)[0].decode(errors="replace")
+    if " 200 " not in f" {status_line} ":
+        sock.close()
+        raise ConnectionError(f"Proxy CONNECT to {hostname}:{port} failed: {status_line}")
+    return sock
+
+
+def _open_tcp_connection(hostname: str, port: int, timeout: int) -> socket.socket:
+    """Direct connection, or tunneled through an HTTPS_PROXY/ALL_PROXY if the environment has one configured."""
+    proxy_url = _get_https_proxy_url()
+    if proxy_url:
+        return _connect_via_proxy(proxy_url, hostname, port, timeout)
+    return socket.create_connection((hostname, port), timeout=timeout)
 
 
 def get_dns_records(hostname: str, record_type: str = "A", timeout: int = 10) -> list[str]:
@@ -46,10 +89,10 @@ def check_dns_drift(hostname: str, previous_records: dict[str, list[str]]) -> di
 
 
 def check_ssl_certificate(hostname: str, port: int = 443, timeout: int = 10) -> dict | None:
-    """Connects and inspects the live cert: expiry, issuer, and days remaining."""
+    """Connects and inspects the live cert: expiry, issuer, and days remaining. Tunnels through HTTPS_PROXY/ALL_PROXY if the environment has one set, so this doesn't flag every host as unreachable just because raw outbound sockets are blocked while proxied traffic (e.g. from a browser) isn't."""
     try:
         ctx = ssl.create_default_context()
-        with socket.create_connection((hostname, port), timeout=timeout) as sock:
+        with _open_tcp_connection(hostname, port, timeout) as sock:
             with ctx.wrap_socket(sock, server_hostname=hostname) as ssock:
                 cert = ssock.getpeercert()
     except Exception as e:
