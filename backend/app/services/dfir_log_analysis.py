@@ -41,17 +41,25 @@ def _claude_client() -> anthropic.Anthropic:
 
 
 def parse_cloudtrail_json(data: dict) -> list[dict]:
-    """AWS CloudTrail export -- {"Records": [...]}."""
+    """
+    AWS CloudTrail export -- {"Records": [...]}. Failure detection covers both
+    API-call errors (errorCode) and console login failures, which AWS reports
+    via responseElements.ConsoleLogin == "Failure" with no errorCode at all --
+    missing that case would silently blind repeated-auth-failure detection to
+    the most common real-world brute-force scenario (console login attempts).
+    """
     events = []
     for rec in data.get("Records", []):
         user_identity = rec.get("userIdentity", {}) or {}
+        response_elements = rec.get("responseElements", {}) or {}
+        failed = bool(rec.get("errorCode")) or response_elements.get("ConsoleLogin") == "Failure"
         events.append({
             "timestamp": rec.get("eventTime"),
             "event_type": rec.get("eventName"),
             "source_ip": rec.get("sourceIPAddress"),
             "user": user_identity.get("userName") or user_identity.get("arn"),
             "host": rec.get("eventSource"),
-            "outcome": "failure" if rec.get("errorCode") else "success",
+            "outcome": "failure" if failed else "success",
             "raw": json.dumps(rec),
         })
     return events
