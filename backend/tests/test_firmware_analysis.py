@@ -48,6 +48,29 @@ def test_run_binwalk_extraction_success(tmp_path):
     assert result["extracted"] is True
 
 
+def test_run_binwalk_extraction_passes_run_as_root_when_running_as_root(tmp_path):
+    """binwalk >=2.2 exits 3 and refuses to extract as root without --run-as=root
+    -- this container runs as root, so the flag must always be added or every
+    extraction silently no-ops in production."""
+    fw = tmp_path / "firmware.bin"
+    fw.write_bytes(b"dummy")
+    fake_proc = MagicMock(returncode=0, stdout="Signatures found", stderr="")
+    with patch("app.services.firmware_analysis.os.geteuid", return_value=0, create=True), \
+         patch("app.services.firmware_analysis.subprocess.run", return_value=fake_proc) as mock_run:
+        run_binwalk_extraction(str(fw), str(tmp_path / "out"))
+    assert "--run-as=root" in mock_run.call_args.args[0]
+
+
+def test_run_binwalk_extraction_omits_run_as_root_for_non_root(tmp_path):
+    fw = tmp_path / "firmware.bin"
+    fw.write_bytes(b"dummy")
+    fake_proc = MagicMock(returncode=0, stdout="Signatures found", stderr="")
+    with patch("app.services.firmware_analysis.os.geteuid", return_value=1000, create=True), \
+         patch("app.services.firmware_analysis.subprocess.run", return_value=fake_proc) as mock_run:
+        run_binwalk_extraction(str(fw), str(tmp_path / "out"))
+    assert "--run-as=root" not in mock_run.call_args.args[0]
+
+
 def test_scan_extracted_files_for_secrets_finds_aws_key(tmp_path):
     secret_file = tmp_path / "config.txt"
     secret_file.write_bytes(b"AWS_KEY=AKIAABCDEFGHIJKLMNOP\n")
@@ -98,6 +121,18 @@ def test_run_checksec_parses_json_output():
     with patch("app.services.firmware_analysis.subprocess.run", return_value=fake_proc):
         result = run_checksec("/path/to/binary")
     assert result["relro"] == "full"
+
+
+def test_run_checksec_uses_equals_joined_flags():
+    """checksec.sh's own argument parser only accepts --flag=value, not a
+    separate --flag value token -- passing them as two argv entries makes
+    every real invocation fail with "Unknown option"."""
+    fake_proc = MagicMock(returncode=0, stdout='{"relro": "full"}')
+    with patch("app.services.firmware_analysis.subprocess.run", return_value=fake_proc) as mock_run:
+        run_checksec("/path/to/binary")
+    args = mock_run.call_args.args[0]
+    assert "--file=/path/to/binary" in args
+    assert "--format=json" in args
 
 
 def test_generate_firmware_summary_grounded_in_findings():

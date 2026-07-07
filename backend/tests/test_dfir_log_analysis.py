@@ -22,6 +22,19 @@ def test_parse_cloudtrail_json_extracts_core_fields():
     assert events[0]["user"] == "alice"
 
 
+def test_parse_cloudtrail_json_flags_console_login_failure_without_error_code():
+    """Real AWS CloudTrail ConsoleLogin failures set responseElements.ConsoleLogin
+    to "Failure" and carry no errorCode at all -- this is the actual wire format
+    for a brute-forced console login attempt, the most common real-world case."""
+    data = {"Records": [
+        {"eventTime": "2026-01-01T00:00:00Z", "eventName": "ConsoleLogin", "eventSource": "signin.amazonaws.com",
+         "sourceIPAddress": "1.2.3.4", "userIdentity": {"userName": "alice"},
+         "responseElements": {"ConsoleLogin": "Failure"}},
+    ]}
+    events = parse_cloudtrail_json(data)
+    assert events[0]["outcome"] == "failure"
+
+
 def test_parse_azure_activity_log_extracts_core_fields():
     data = {"value": [
         {"eventTimestamp": "2026-01-01T00:00:00Z", "operationName": {"value": "Microsoft.Compute/vm/write"},

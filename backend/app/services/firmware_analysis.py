@@ -40,11 +40,21 @@ def extract_printable_strings(data: bytes) -> str:
 
 
 def run_binwalk_extraction(file_path: str, output_dir: str, timeout: int = 300) -> dict:
-    """Runs `binwalk -e` to carve out an embedded filesystem. Degrades gracefully (extracted=False) if binwalk is missing, broken, or times out -- never raises."""
+    """
+    Runs `binwalk -e` to carve out an embedded filesystem. Degrades gracefully
+    (extracted=False) if binwalk is missing, broken, or times out -- never
+    raises. binwalk >=2.2 refuses to invoke its extraction utilities as the
+    root user unless told explicitly (`--run-as=root`) since those utilities
+    aren't sandboxed -- this platform's container runs as root, so that flag
+    is required here or every extraction silently no-ops with exit code 3.
+    """
     os.makedirs(output_dir, exist_ok=True)
+    cmd = ["binwalk", "-e", "--directory", output_dir, file_path]
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        cmd.insert(1, "--run-as=root")
     try:
         proc = subprocess.run(
-            ["binwalk", "-e", "--directory", output_dir, file_path],
+            cmd,
             capture_output=True, text=True, timeout=timeout,
         )
     except FileNotFoundError:
@@ -117,9 +127,15 @@ def check_library_cves(component_versions: dict[str, str], timeout: int = 15) ->
 
 
 def run_checksec(binary_path: str, timeout: int = 30) -> dict | None:
-    """Optional checksec enrichment (NX/PIE/RELRO/canary flags) for an extracted ELF binary. None means the tool isn't installed."""
+    """
+    Optional checksec enrichment (NX/PIE/RELRO/canary flags) for an extracted
+    ELF binary. None means the tool isn't installed. checksec.sh's argument
+    parser only accepts `--flag=value`, not a separate `--flag value` token --
+    passing them as two args makes every real invocation fail with "Unknown
+    option", so this must be a single `--file=...`/`--format=json` argument.
+    """
     try:
-        proc = subprocess.run(["checksec", "--file", binary_path, "--format", "json"],
+        proc = subprocess.run(["checksec", f"--file={binary_path}", "--format=json"],
                                capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError:
         logger.info("`checksec` not found on PATH — skipping binary hardening enrichment")
