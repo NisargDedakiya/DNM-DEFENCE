@@ -302,6 +302,9 @@ export const querySiemConnection = (clientId, connectionId, payload) => api.post
 // --- Alert/notification send log (client-visible: findings alerts, SLA breaches, weekly digests) ---
 export const listAlertLog = (clientId) => api.get(`/clients/${clientId}/alerts`).then(r => r.data)
 
+// --- System diagnostics (staff-only: is the Celery worker/Redis/recon toolchain actually up?) ---
+export const getSystemDiagnostics = () => api.get('/system/diagnostics').then(r => r.data)
+
 // Authenticated file downloads must go through axios (so the Bearer token
 // header is attached) rather than a plain <a href> -- this app has no
 // cookie-based session, so a bare anchor tag hitting an authenticated

@@ -207,6 +207,15 @@ npm run dev
 ```
 Visit http://localhost:5173 — it proxies `/api` requests to the backend on `:8000`.
 
+**Verify the setup actually worked:** every scan-trigger endpoint just enqueues
+a Celery task and returns immediately — if you skip the worker terminal above,
+or it's pointed at a different Redis than the API, nothing fails loudly: the
+scan just sits at "running" forever with no findings and no error anywhere in
+the UI. Log in as a staff user and open **System Health** in the sidebar (or
+`GET /api/system/diagnostics`) — it pings the Celery worker, checks Redis/DB,
+and checks that `subfinder`/`httpx`/`naabu`/`nmap`/`dig` are actually on PATH,
+so a missing piece shows up as a warning instead of silent "no real data."
+
 ---
 
 ## Configuration
