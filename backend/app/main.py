@@ -1,5 +1,6 @@
 import logging
 
+import anthropic
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
@@ -110,6 +111,40 @@ app.state.limiter = limiter
 @app.exception_handler(RateLimitExceeded)
 def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded. Please slow down."})
+
+
+# Every AI-backed endpoint (reports, executive summaries, narratives,
+# advisories, posture briefs, PDF exports that embed a narrative) calls the
+# Anthropic API synchronously. If ANTHROPIC_API_KEY is missing, invalid,
+# revoked, rate-limited, or the API is unreachable, that call raises -- and
+# without these handlers it surfaces as an opaque HTTP 500 "Internal server
+# error", which is exactly the "no report generated, no reason shown" failure
+# an operator hits when they haven't configured a real key. Convert both
+# failure modes into a clear, actionable 503 at the boundary so it's obvious
+# what's wrong and that only the AI features (not the whole platform) are
+# affected. This is uniform across all AI endpoints -- no per-route handling.
+_AI_UNAVAILABLE_DETAIL = (
+    "AI-generated content is currently unavailable — the ANTHROPIC_API_KEY is missing, "
+    "invalid, or the Anthropic API is unreachable. Every non-AI feature keeps working; "
+    "set a valid key and retry."
+)
+
+
+@app.exception_handler(anthropic.AnthropicError)
+async def anthropic_error_handler(request: Request, exc: "anthropic.AnthropicError"):
+    """Invalid/revoked/rate-limited key or an unreachable Anthropic API — covers AuthenticationError, APIError, rate-limit and connection errors (all subclasses)."""
+    logger.error(f"AI content generation failed on {request.method} {request.url.path}: {exc}")
+    return JSONResponse(status_code=503, content={"detail": _AI_UNAVAILABLE_DETAIL})
+
+
+@app.exception_handler(RuntimeError)
+async def runtime_error_handler(request: Request, exc: RuntimeError):
+    """The `_claude_client()` guards raise RuntimeError when the key is unset — give that the same clean 503. Any other RuntimeError keeps the opaque 500 (its message could leak internals)."""
+    if "ANTHROPIC_API_KEY" in str(exc):
+        logger.error(f"AI content requested but not configured on {request.method} {request.url.path}: {exc}")
+        return JSONResponse(status_code=503, content={"detail": _AI_UNAVAILABLE_DETAIL})
+    logger.exception(f"Unhandled RuntimeError on {request.method} {request.url.path}: {exc}")
+    return JSONResponse(status_code=500, content={"detail": "Internal server error."})
 
 
 @app.exception_handler(Exception)
