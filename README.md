@@ -149,31 +149,67 @@ bytes directly rather than failing the analysis.
 
 ## Installation
 
-### Option A: Docker (recommended)
+### Option A: Docker (recommended) — the one-command production path
+
+On a fresh server (a cloud VPS, your own box — anything with Docker + Docker
+Compose and `make`), four commands take you from clone to a running platform
+you can sell services from. If you have `make`, use the wrapper; the raw
+`docker compose` equivalents are shown alongside.
 
 ```bash
 git clone <this-repo-url>
 cd DNM-DEFENCE
 
-cp backend/.env.example backend/.env
-# edit backend/.env — at minimum set ANTHROPIC_API_KEY and change SECRET_KEY
-# (recon/threat-intel API keys are optional; each integration degrades
-# gracefully and just skips that signal if its key is empty)
-
-docker compose up --build
+make setup          # writes backend/.env with secure random SECRET_KEY + ENCRYPTION_KEY
+make up             # builds and starts the whole stack (db, redis, api, worker, beat, web)
+make create-admin   # prompts for your first admin email + password
+make health         # confirms the API, worker, redis, and scan tools are all up
 ```
 
-This starts Postgres, Redis, the FastAPI API, a Celery worker, Celery beat
-(the scheduler), and the frontend dev server — and runs database
-migrations automatically on startup.
+Then open **http://localhost** and log in. That's it — the web UI, API,
+background workers, scheduler, database, and cache are all running, and the
+backend image already installs every scan tool, so scans return real results
+out of the box (no "the worker isn't running / the tools aren't installed"
+surprises).
+
+Without `make`, the same steps are:
 
 ```bash
-# one-time: create your first admin login
-docker compose exec api python -m app.scripts.create_admin you@yourcompany.com
+python3 scripts/generate_env.py                                   # = make setup
+docker compose up -d --build                                      # = make up
+docker compose run --rm api python -m app.scripts.create_admin you@youragency.com  # = make create-admin
+curl http://localhost/health                                      # = make health
 ```
 
-- API + interactive docs: http://localhost:8000/docs (docs only mount when `ENV=development`)
-- Portal: http://localhost:5173
+**Two things to set for real use** (both surfaced by `make setup` and on the
+in-app **System Health** page):
+
+1. **`ANTHROPIC_API_KEY`** in `backend/.env` — required for AI reports,
+   executive summaries, and narratives. Everything else works without it; AI
+   endpoints return a clear "set a valid key" message until it's set.
+2. **`ALLOWED_ORIGINS`** in `backend/.env` — to serve the portal to remote
+   users (not just `localhost`), set this to your domain/IP, e.g.
+   `ALLOWED_ORIGINS=https://portal.youragency.com`, then `make restart`.
+
+**Serving it securely on the internet:** the stack listens on plain HTTP
+(port 80) so you can put it behind a TLS terminator you control — Caddy,
+Traefik, nginx, or a cloud load balancer — which handles HTTPS certificates.
+Point that proxy at port 80, set `FORCE_HTTPS=true` and your domain in
+`ALLOWED_ORIGINS`, and `make restart`.
+
+**Everyday operator commands** (`make help` lists them all):
+
+| Command | What it does |
+|---|---|
+| `make up` / `make down` | start / stop the whole stack |
+| `make health` | is everything actually running? |
+| `make logs` | tail logs from all services |
+| `make create-admin` | add another admin login |
+| `make backup` | dump the database to `./backups/` |
+| `make restore BACKUP=…` | restore from a dump |
+| `make rebuild` | rebuild after a code/dependency change |
+
+### Option B: Manual / local development setup
 
 ### Option B: Manual / local development setup
 
@@ -361,6 +397,40 @@ real deployment:
   `ReadOnlyAccess` managed policy, or the GCP/Azure equivalents) — never
   give this platform write access to a client's cloud account.
 - Only scan domains under a signed authorization/scope agreement.
+
+## What's new — One-command production setup + operator overview
+
+Making the platform easy to actually run as a managed-security business for
+multiple client companies:
+
+- **One-command startup.** `make setup && make up && make create-admin`
+  brings the entire stack up on a fresh server — database, cache, API,
+  background worker, scheduler, and the production web UI (built static
+  assets served by nginx, which also proxies the API so the browser talks to
+  one origin). The worker and all scan tools come from the same image, so the
+  most common "no data / no report" failure — a scan queued with nothing to
+  run it — can't happen silently. A `Makefile` wraps every operator command
+  (`up`, `down`, `health`, `logs`, `backup`, `restore`, `create-admin`).
+- **Secure by default.** `scripts/generate_env.py` (run by `make setup`)
+  writes `backend/.env` with a randomly generated `SECRET_KEY` and a valid
+  Fernet `ENCRYPTION_KEY`, so a fresh install is never running on guessable
+  secrets. It's idempotent — existing values (including API keys you've
+  added) are preserved — and it prints exactly what still needs setting
+  (`ANTHROPIC_API_KEY`, `ALLOWED_ORIGINS` for remote access).
+- **Ops hardening.** Health-gated startup ordering (`depends_on:
+  service_healthy`), `restart: unless-stopped` on every service, an API
+  container healthcheck, automatic migrations on boot, and DB backup/restore
+  via `make backup` / `make restore`.
+- **Operator Overview dashboard.** A staff-only "whole book of business"
+  screen (`GET /api/system/operator-overview`): client counts, open findings
+  by severity across *every* client, scans running / completed / failed,
+  recent scan failures with their error and which client they belong to, and
+  a per-client risk leaderboard so the client needing attention surfaces
+  without clicking into each one. Auto-refreshes every 30s.
+- **Clear failures, never silent ones.** Every AI-backed endpoint now returns
+  a clean, actionable 503 ("set a valid ANTHROPIC_API_KEY") instead of an
+  opaque 500 when the key is missing or invalid — the AI failure mode is now
+  obvious instead of looking like a broken feature.
 
 ## What's new in this update — Module 2
 

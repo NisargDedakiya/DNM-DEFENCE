@@ -12,11 +12,13 @@ failure mode is visible instead of silent.
 import shutil
 from datetime import datetime, timedelta
 
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.models import ScanRun, ScanStatus
+from app.models.models import (
+    Client, Finding, FindingStatus, ScanRun, ScanStatus, Severity,
+)
 
 STUCK_SCAN_THRESHOLD_HOURS = 6
 
@@ -121,4 +123,105 @@ def run_diagnostics(db: Session) -> dict:
         "ai_reports_configured": ai_configured,
         "stuck_scans": stuck_scans,
         "warnings": warnings,
+    }
+
+
+_OPEN_STATUSES = (FindingStatus.new, FindingStatus.acknowledged, FindingStatus.in_remediation, FindingStatus.disputed)
+
+
+def operator_overview(db: Session) -> dict:
+    """
+    One 'is my whole book of business healthy right now?' rollup for the
+    operator running managed security for multiple client companies -- the
+    numbers you'd want on a wall dashboard. Aggregates across ALL clients
+    (staff-only): client counts, open findings by severity, scan activity
+    and failures, and a per-client risk leaderboard so the client needing
+    attention surfaces without clicking into each one.
+    """
+    now = datetime.utcnow()
+    day_ago = now - timedelta(hours=24)
+    week_ago = now - timedelta(days=7)
+
+    total_clients = db.query(Client).count()
+    active_clients = db.query(Client).filter(Client.is_active.is_(True)).count()
+
+    # Open findings by severity, across every client.
+    sev_rows = (
+        db.query(Finding.severity, func.count(Finding.id))
+        .filter(Finding.status.in_(_OPEN_STATUSES))
+        .group_by(Finding.severity)
+        .all()
+    )
+    sev_map = {s.value if hasattr(s, "value") else str(s): c for s, c in sev_rows}
+    open_by_severity = {sev.value: sev_map.get(sev.value, 0) for sev in Severity}
+    total_open = sum(open_by_severity.values())
+
+    # Scan activity.
+    scans_running = db.query(ScanRun).filter(ScanRun.status == ScanStatus.running).count()
+    scans_completed_24h = db.query(ScanRun).filter(
+        ScanRun.status == ScanStatus.completed, ScanRun.finished_at >= day_ago
+    ).count()
+    scans_failed_24h = db.query(ScanRun).filter(
+        ScanRun.status == ScanStatus.failed, ScanRun.finished_at >= day_ago
+    ).count()
+
+    # Recent failures with enough context to act on (which client, which scan, why).
+    recent_failures = []
+    fail_rows = (
+        db.query(ScanRun, Client.name)
+        .join(Client, Client.id == ScanRun.client_id)
+        .filter(ScanRun.status == ScanStatus.failed, ScanRun.finished_at >= week_ago)
+        .order_by(ScanRun.finished_at.desc())
+        .limit(10)
+        .all()
+    )
+    for scan, client_name in fail_rows:
+        recent_failures.append({
+            "client_id": scan.client_id,
+            "client_name": client_name,
+            "scan_type": scan.scan_type.value if hasattr(scan.scan_type, "value") else str(scan.scan_type),
+            "error": (scan.error_message or "")[:200],
+            "finished_at": scan.finished_at.isoformat() if scan.finished_at else None,
+        })
+
+    # Per-client risk leaderboard: weight open findings by severity so the
+    # client with the most urgent exposure sorts to the top.
+    weights = {Severity.critical: 25, Severity.high: 10, Severity.medium: 3, Severity.low: 1}
+    leaderboard = []
+    for client in db.query(Client).all():
+        rows = (
+            db.query(Finding.severity, func.count(Finding.id))
+            .filter(Finding.client_id == client.id, Finding.status.in_(_OPEN_STATUSES))
+            .group_by(Finding.severity)
+            .all()
+        )
+        counts = {sev.value: 0 for sev in Severity}
+        score = 0
+        for sev, cnt in rows:
+            key = sev.value if hasattr(sev, "value") else str(sev)
+            counts[key] = cnt
+            score += weights.get(sev, 0) * cnt
+        leaderboard.append({
+            "client_id": client.id, "client_name": client.name,
+            "risk_score": min(100, score), "open_findings": sum(counts.values()),
+            "critical": counts["critical"], "high": counts["high"],
+        })
+    leaderboard.sort(key=lambda r: r["risk_score"], reverse=True)
+
+    diag = run_diagnostics(db)
+
+    return {
+        "generated_at": now.isoformat(),
+        "system_healthy": diag["healthy"],
+        "system_warnings": diag["warnings"],
+        "clients": {"total": total_clients, "active": active_clients},
+        "open_findings": {"total": total_open, "by_severity": open_by_severity},
+        "scans": {
+            "running": scans_running,
+            "completed_24h": scans_completed_24h,
+            "failed_24h": scans_failed_24h,
+            "stuck": diag["stuck_scans"],
+        },
+        "recent_failures": recent_failures,
+        "risk_leaderboard": leaderboard[:10],
     }

@@ -17,6 +17,7 @@ import DevSecOps from './pages/DevSecOps.jsx'
 import RedTeam from './pages/RedTeam.jsx'
 import ZeroDayResearch from './pages/ZeroDayResearch.jsx'
 import SystemHealth from './pages/SystemHealth.jsx'
+import OperatorOverview from './pages/OperatorOverview.jsx'
 import DFIR from './pages/DFIR.jsx'
 import HardwareIoT from './pages/HardwareIoT.jsx'
 import ThreatHunting from './pages/ThreatHunting.jsx'
@@ -54,6 +55,7 @@ export default function App() {
           <Route path="/" element={user.role === 'client' ? <Navigate to={homePath} replace /> : <ClientList />} />
           <Route path="/zero-day-research" element={<ZeroDayResearch />} />
           <Route path="/system-health" element={<SystemHealth />} />
+          <Route path="/operator" element={<OperatorOverview />} />
           <Route path="/clients/:clientId" element={<Dashboard />} />
           <Route path="/clients/:clientId/assets" element={<Assets />} />
           <Route path="/clients/:clientId/findings" element={<Findings />} />

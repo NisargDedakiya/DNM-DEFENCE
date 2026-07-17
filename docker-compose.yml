@@ -1,62 +1,95 @@
+# Production-oriented single-server stack. One command brings up the whole
+# platform: database, cache, API, background worker + scheduler, and the web
+# UI. Every service that does real work (API, worker, beat) is built from the
+# same backend image, which installs all the scan tools, so "the worker isn't
+# running / the tools aren't installed" can't silently break scans.
+#
+#   1.  python scripts/generate_env.py     # once: writes backend/.env with real secrets
+#   2.  docker compose up -d --build       # start everything
+#   3.  docker compose run --rm api python -m app.scripts.create_admin you@agency.com
+#   4.  open http://localhost               # log in
+#
+# (The Makefile wraps these as `make setup`, `make up`, `make create-admin`.)
+
 services:
   db:
     image: postgres:15
+    restart: unless-stopped
     environment:
       POSTGRES_USER: track1
       POSTGRES_PASSWORD: track1
       POSTGRES_DB: track1
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U track1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Not published to the host by default -- the API reaches it over the
+    # internal network. Uncomment to connect a local DB client.
+    # ports:
+    #   - "5432:5432"
 
   redis:
     image: redis:7
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   api:
     build: ./backend
+    restart: unless-stopped
     env_file: ./backend/.env
     depends_on:
-      - db
-      - redis
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./backend:/app
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Apply migrations, then serve. Migrations are idempotent, so it's safe
+    # for this to run on every start/restart.
     command: >
-      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
 
-  celery_worker:
+  worker:
     build: ./backend
+    restart: unless-stopped
     command: celery -A app.workers.celery_app worker --loglevel=info
     env_file: ./backend/.env
     depends_on:
-      - db
-      - redis
-    volumes:
-      - ./backend:/app
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
-  celery_beat:
+  beat:
     build: ./backend
+    restart: unless-stopped
     command: celery -A app.workers.celery_app beat --loglevel=info
     env_file: ./backend/.env
     depends_on:
-      - db
-      - redis
-    volumes:
-      - ./backend:/app
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   frontend:
     build: ./frontend
-    ports:
-      - "5173:5173"
+    restart: unless-stopped
     depends_on:
       - api
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
+    ports:
+      - "80:80"
 
 volumes:
   pgdata:
