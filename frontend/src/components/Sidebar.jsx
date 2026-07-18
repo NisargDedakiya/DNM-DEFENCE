@@ -35,6 +35,7 @@ export default function Sidebar({ user, onLogout }) {
           <>
             <div className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-widest text-muted font-mono">This Client</div>
             <NavLink to={`/clients/${clientId}`} end className={navItem}>Overview</NavLink>
+            <NavLink to={`/clients/${clientId}/scorecard`} className={navItem}>Security Report Card</NavLink>
             <NavLink to={`/clients/${clientId}/assets`} className={navItem}>Asset Inventory</NavLink>
             <NavLink to={`/clients/${clientId}/findings`} className={navItem}>Vulnerability Tracker</NavLink>
             <NavLink to={`/clients/${clientId}/compliance`} className={navItem}>Compliance Center</NavLink>

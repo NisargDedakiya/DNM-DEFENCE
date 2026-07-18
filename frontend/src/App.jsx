@@ -18,6 +18,7 @@ import RedTeam from './pages/RedTeam.jsx'
 import ZeroDayResearch from './pages/ZeroDayResearch.jsx'
 import SystemHealth from './pages/SystemHealth.jsx'
 import OperatorOverview from './pages/OperatorOverview.jsx'
+import SecurityScorecard from './pages/SecurityScorecard.jsx'
 import DFIR from './pages/DFIR.jsx'
 import HardwareIoT from './pages/HardwareIoT.jsx'
 import ThreatHunting from './pages/ThreatHunting.jsx'
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="/system-health" element={<SystemHealth />} />
           <Route path="/operator" element={<OperatorOverview />} />
           <Route path="/clients/:clientId" element={<Dashboard />} />
+          <Route path="/clients/:clientId/scorecard" element={<SecurityScorecard />} />
           <Route path="/clients/:clientId/assets" element={<Assets />} />
           <Route path="/clients/:clientId/findings" element={<Findings />} />
           <Route path="/clients/:clientId/compliance" element={<Compliance />} />
