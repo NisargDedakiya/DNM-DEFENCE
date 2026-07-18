@@ -398,6 +398,31 @@ real deployment:
   give this platform write access to a client's cloud account.
 - Only scan domains under a signed authorization/scope agreement.
 
+## What's new — vCISO layer: a security team startups can't afford to hire
+
+Turns the platform's raw findings into the deliverable a fractional CISO
+gives a small company with no security staff — a plain-English decision, not
+a wall of scan output. All computed from data the platform already collects;
+no AI required (an optional AI summary sits on top and degrades gracefully).
+
+- **Security Report Card** (`GET /api/clients/{id}/posture`, client-visible):
+  an overall grade **A–F** with a plain-English "what this means", a
+  breakdown of which security *areas* are weak (exposed services, email
+  spoofing, cloud, secrets, encryption, vulnerable software, app hardening),
+  and a **prioritized action plan** — the highest-impact fixes in order.
+- **Guided fixes for non-experts.** Every action item answers two questions a
+  founder actually has: *why it matters* (in one plain sentence) and *how to
+  fix it* (step-by-step guidance — from the finding's own remediation notes,
+  or a sensible per-area default when none exists).
+- **SOC 2 readiness.** A "how ready are we to pass a customer's security
+  review" percentage, reusing the SOC 2 control checklist already seeded per
+  client — the question small companies get asked when selling to bigger ones.
+- **Self-service by design.** The scorecard is computed on demand from
+  whatever scans have run, so onboarding a client (which already auto-triggers
+  a baseline scan) produces a usable report with no analyst in the loop. The
+  new **Security Report Card** sidebar entry is visible to the client too, not
+  just staff.
+
 ## What's new — One-command production setup + operator overview
 
 Making the platform easy to actually run as a managed-security business for

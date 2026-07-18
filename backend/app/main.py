@@ -20,7 +20,7 @@ from app.core.database import SessionLocal
 from app.api import (
     clients, assets, findings, cloud, reports, compliance, phishing, phishing_public, pentest, auth, audit,
     osint, vishing, physical_security, mobile_security, web3_security, ai_security, devsecops, red_team, zero_day,
-    dfir, firmware, threat_hunting, alerts, system,
+    dfir, firmware, threat_hunting, alerts, system, posture,
 )
 
 # Import models so Base.metadata knows about every table before create_all
@@ -258,6 +258,7 @@ app.include_router(threat_hunting.hypothesis_router)
 app.include_router(threat_hunting.router)
 app.include_router(alerts.router)
 app.include_router(system.router)
+app.include_router(posture.router)
 
 if settings.ENABLE_METRICS:
     # Exposes GET /metrics in Prometheus text format: request counts, latency

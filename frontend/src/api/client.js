@@ -308,6 +308,9 @@ export const getSystemDiagnostics = () => api.get('/system/diagnostics').then(r 
 // --- Operator overview (staff-only: whole-book-of-business rollup across all clients) ---
 export const getOperatorOverview = () => api.get('/system/operator-overview').then(r => r.data)
 
+// --- Security scorecard / vCISO posture (client-visible: grade, action plan, SOC 2 readiness) ---
+export const getPosture = (clientId) => api.get(`/clients/${clientId}/posture`).then(r => r.data)
+
 // Authenticated file downloads must go through axios (so the Bearer token
 // header is attached) rather than a plain <a href> -- this app has no
 // cookie-based session, so a bare anchor tag hitting an authenticated
