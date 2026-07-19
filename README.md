@@ -398,6 +398,35 @@ real deployment:
   give this platform write access to a client's cloud account.
 - Only scan domains under a signed authorization/scope agreement.
 
+## What's new — Subscription tiers: automatic service bundling
+
+Three paid subscription tiers (no free tier). Higher tiers unlock more
+security services and run scans more often — enforced automatically across
+the whole platform from one source of truth (`app/core/plans.py`).
+
+| Tier | Price | Includes |
+|---|---|---|
+| **Essential** | $499/mo | Asset discovery, vulnerability management, security report card, reports, compliance, alerts. Critical SLA 48h. |
+| **Growth** | $1,499/mo | Everything in Essential **+** dark-web/threat intel, cloud security (CSPM), phishing simulations. Critical SLA 24h. |
+| **Enterprise** | $4,999/mo | Everything **+** mobile, Web3, AI/ML, DevSecOps, and penetration testing. Critical SLA 8h. |
+
+- **Automatic enforcement.** A client-role user hitting a capability their
+  plan doesn't include gets a clear **HTTP 402** ("upgrade to Growth to enable
+  it"), and the frontend nav only shows the services their tier includes.
+  Staff are never plan-gated — they deliver the service regardless of tier.
+- **Automatic scan bundling.** The scheduler only runs the scans each client's
+  tier includes (e.g. cloud audits and dark-web scans skip Essential clients),
+  so a plan literally *is* its bundle of services.
+- **SLAs scale with tier.** Changing a client's plan applies that tier's
+  critical/high SLA targets, so a higher tier buys tighter response, not just
+  more features.
+- **Endpoints:** `GET /api/plans` (catalogue), `GET /api/clients/{id}/subscription`
+  (current plan + entitlements), `PUT .../subscription` (staff change tier).
+  Onboarding takes a `plan`; a new **Subscription** page shows the tiers and
+  lets staff upgrade/downgrade. New clients default to the top tier at the
+  data layer so introducing tiers never removes access from anyone already
+  onboarded.
+
 ## What's new — vCISO layer: a security team startups can't afford to hire
 
 Turns the platform's raw findings into the deliverable a fractional CISO

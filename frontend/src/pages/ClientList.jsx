@@ -7,7 +7,7 @@ export default function ClientList() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: '', root_domain: '', contact_email: '', industry: '' })
+  const [form, setForm] = useState({ name: '', root_domain: '', contact_email: '', industry: '', plan: 'essential' })
 
   const { data: clients, isLoading } = useQuery({ queryKey: ['clients'], queryFn: listClients })
 
@@ -52,6 +52,12 @@ export default function ClientList() {
           <input placeholder="Industry (optional)" value={form.industry}
             onChange={(e) => setForm({ ...form, industry: e.target.value })}
             className="bg-panel2 border border-border rounded px-3 py-2 text-sm outline-none focus:border-signal" />
+          <select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })}
+            className="col-span-2 bg-panel2 border border-border rounded px-3 py-2 text-sm outline-none focus:border-signal">
+            <option value="essential">Essential — $499/mo (core monitoring)</option>
+            <option value="growth">Growth — $1,499/mo (+ cloud, threat intel, phishing)</option>
+            <option value="enterprise">Enterprise — $4,999/mo (every service, tightest SLAs)</option>
+          </select>
           <button type="submit" disabled={onboard.isPending}
             className="col-span-2 py-2 bg-signal text-base font-medium rounded-md text-sm disabled:opacity-50">
             {onboard.isPending ? 'Onboarding — triggering baseline scan…' : 'Onboard and start baseline scan'}

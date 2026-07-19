@@ -311,6 +311,11 @@ export const getOperatorOverview = () => api.get('/system/operator-overview').th
 // --- Security scorecard / vCISO posture (client-visible: grade, action plan, SOC 2 readiness) ---
 export const getPosture = (clientId) => api.get(`/clients/${clientId}/posture`).then(r => r.data)
 
+// --- Subscription plans / entitlements ---
+export const listPlans = () => api.get('/plans').then(r => r.data)
+export const getSubscription = (clientId) => api.get(`/clients/${clientId}/subscription`).then(r => r.data)
+export const setSubscription = (clientId, plan) => api.put(`/clients/${clientId}/subscription`, { plan }).then(r => r.data)
+
 // Authenticated file downloads must go through axios (so the Bearer token
 // header is attached) rather than a plain <a href> -- this app has no
 // cookie-based session, so a bare anchor tag hitting an authenticated

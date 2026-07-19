@@ -12,6 +12,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import require_client_access, get_current_user
+from app.core.entitlements import require_feature
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
@@ -24,7 +25,7 @@ from app.models.models import (
 from app.services.notifications import send_email
 from app.services.ai_reports import generate_phishing_debrief
 
-router = APIRouter(prefix="/api/clients/{client_id}/phishing-campaigns", tags=["phishing"], dependencies=[Depends(require_client_access)])
+router = APIRouter(prefix="/api/clients/{client_id}/phishing-campaigns", tags=["phishing"], dependencies=[Depends(require_client_access), Depends(require_feature("phishing_simulations"))])
 
 
 class CampaignCreate(BaseModel):

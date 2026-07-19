@@ -2,6 +2,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import require_client_access
+from app.core.entitlements import require_feature
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
@@ -11,7 +12,7 @@ from app.models.models import Client, CloudAccount, CloudProvider
 from app.schemas.schemas import ScanTriggerResponse
 from app.workers.tasks import run_cloud_audit_for_client
 
-router = APIRouter(prefix="/api/clients/{client_id}/cloud-accounts", tags=["cloud"], dependencies=[Depends(require_client_access)])
+router = APIRouter(prefix="/api/clients/{client_id}/cloud-accounts", tags=["cloud"], dependencies=[Depends(require_client_access), Depends(require_feature("cloud_security"))])
 
 
 class CloudAccountCreate(BaseModel):

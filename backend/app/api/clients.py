@@ -44,7 +44,18 @@ def onboard_client(payload: ClientCreate, db: Session = Depends(get_db), _staff:
     automatically triggers the baseline subdomain enumeration scan so the
     asset inventory isn't empty on day one.
     """
-    client = Client(**payload.model_dump())
+    from app.core.plans import PLANS, PlanTier
+    data = payload.model_dump()
+    requested_plan = data.pop("plan", None)
+    client = Client(**data)
+    if requested_plan:
+        valid = [t.value for t in PlanTier]
+        if requested_plan not in valid:
+            raise HTTPException(422, f"Invalid plan '{requested_plan}'. Must be one of: {', '.join(valid)}")
+        plan = PLANS[PlanTier(requested_plan)]
+        client.plan = requested_plan
+        client.sla_hours_critical = plan["sla_hours_critical"]
+        client.sla_hours_high = plan["sla_hours_high"]
     db.add(client)
     db.commit()
     db.refresh(client)

@@ -7,12 +7,13 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.core.auth import require_client_access
+from app.core.entitlements import require_feature
 from app.core.database import get_db
 from app.models.models import Client, MobileAppScan, MobileScanStatus, MobileTrafficImport
 from app.services.mobile_sast import run_static_analysis, generate_executive_summary
 from app.services.mobile_traffic import analyze_har_import
 
-router = APIRouter(prefix="/api/clients/{client_id}/mobile-scans", tags=["mobile-security"], dependencies=[Depends(require_client_access)])
+router = APIRouter(prefix="/api/clients/{client_id}/mobile-scans", tags=["mobile-security"], dependencies=[Depends(require_client_access), Depends(require_feature("mobile_security"))])
 
 _UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "mobile-app-uploads")
 os.makedirs(_UPLOAD_DIR, exist_ok=True)

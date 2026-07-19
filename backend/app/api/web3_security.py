@@ -7,12 +7,13 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.core.auth import require_client_access
+from app.core.entitlements import require_feature
 from app.core.database import get_db
 from app.models.models import Client, SmartContractAudit, ContractAuditStatus, OnChainMonitor
 from app.services.web3_scan import run_contract_scan
 from app.services.web3_report import render_web3_audit_html, export_pdf, render_web3_audit_markdown
 
-router = APIRouter(prefix="/api/clients/{client_id}/web3", tags=["web3-security"], dependencies=[Depends(require_client_access)])
+router = APIRouter(prefix="/api/clients/{client_id}/web3", tags=["web3-security"], dependencies=[Depends(require_client_access), Depends(require_feature("web3_security"))])
 
 _EXPORT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "generated_reports")
 os.makedirs(_EXPORT_DIR, exist_ok=True)

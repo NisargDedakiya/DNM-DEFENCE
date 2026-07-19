@@ -5,12 +5,13 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.core.auth import require_client_access
+from app.core.entitlements import require_feature
 from app.core.database import get_db
 from app.models.models import (
     Client, PhysicalSecurityAssessment, PhysicalSecurityChecklistItem, PhysicalTestType,
 )
 
-router = APIRouter(prefix="/api/clients/{client_id}/physical-security", tags=["physical-security"], dependencies=[Depends(require_client_access)])
+router = APIRouter(prefix="/api/clients/{client_id}/physical-security", tags=["physical-security"], dependencies=[Depends(require_client_access), Depends(require_feature("phishing_simulations"))])
 
 
 class ChecklistItemOut(BaseModel):
