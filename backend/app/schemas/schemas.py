@@ -8,6 +8,7 @@ class ClientCreate(BaseModel):
     industry: str | None = None
     contact_email: EmailStr
     slack_webhook_url: str | None = None
+    plan: str | None = None  # subscription tier at onboarding; defaults to the model default if omitted
 
     @field_validator("slack_webhook_url")
     @classmethod
@@ -33,6 +34,7 @@ class ClientOut(BaseModel):
     root_domain: str
     industry: str | None
     contact_email: str
+    plan: str
     onboarded_at: datetime
     is_active: bool
 

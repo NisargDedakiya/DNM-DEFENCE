@@ -7,11 +7,12 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.core.auth import require_client_access
+from app.core.entitlements import require_feature
 from app.core.database import get_db
 from app.models.models import Client, VishingEngagement, VishingRiskRating
 from app.services.vishing import transcribe_recording, analyze_transcript
 
-router = APIRouter(prefix="/api/clients/{client_id}/vishing-engagements", tags=["vishing"], dependencies=[Depends(require_client_access)])
+router = APIRouter(prefix="/api/clients/{client_id}/vishing-engagements", tags=["vishing"], dependencies=[Depends(require_client_access), Depends(require_feature("phishing_simulations"))])
 
 _RECORDING_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "vishing-recordings")
 os.makedirs(_RECORDING_DIR, exist_ok=True)

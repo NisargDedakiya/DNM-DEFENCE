@@ -1,4 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { getSubscription } from '../api/client.js'
 
 const navItem = ({ isActive }) =>
   `block px-3 py-2 rounded-md text-sm transition-colors ${
@@ -14,6 +16,18 @@ export default function Sidebar({ user, onLogout }) {
   const location = useLocation()
   const clientId = location.pathname.match(/^\/clients\/([^/]+)/)?.[1]
   const isStaff = user?.role === 'admin' || user?.role === 'analyst'
+
+  // Entitlements gate what a *client-role* user sees in the nav, so a plan
+  // never shows features it doesn't include. Staff see every service (they
+  // deliver them regardless of the client's tier), so we skip the fetch.
+  const { data: sub } = useQuery({
+    queryKey: ['entitlements', clientId],
+    queryFn: () => getSubscription(clientId),
+    enabled: !!clientId && !isStaff,
+  })
+  const ent = sub?.entitlements
+  // Staff (no ent fetched) => everything visible; client-role => gate on ent.
+  const can = (feature) => isStaff || !ent || ent[feature]
 
   return (
     <aside className="w-64 fixed inset-y-0 left-0 bg-panel border-r border-border flex flex-col">
@@ -39,15 +53,18 @@ export default function Sidebar({ user, onLogout }) {
             <NavLink to={`/clients/${clientId}/assets`} className={navItem}>Asset Inventory</NavLink>
             <NavLink to={`/clients/${clientId}/findings`} className={navItem}>Vulnerability Tracker</NavLink>
             <NavLink to={`/clients/${clientId}/compliance`} className={navItem}>Compliance Center</NavLink>
-            <NavLink to={`/clients/${clientId}/phishing`} className={navItem}>Phishing Simulations</NavLink>
+            {can('phishing_simulations') && <NavLink to={`/clients/${clientId}/phishing`} className={navItem}>Phishing Simulations</NavLink>}
             <NavLink to={`/clients/${clientId}/reports`} className={navItem}>Report Library</NavLink>
+            <NavLink to={`/clients/${clientId}/subscription`} className={navItem}>Subscription</NavLink>
 
-            <div className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-widest text-muted font-mono">Expanded Services</div>
-            <NavLink to={`/clients/${clientId}/social-engineering`} className={navItem}>Social Engineering</NavLink>
-            <NavLink to={`/clients/${clientId}/mobile-security`} className={navItem}>Mobile App Security</NavLink>
-            <NavLink to={`/clients/${clientId}/web3-security`} className={navItem}>Web3 &amp; Blockchain</NavLink>
-            <NavLink to={`/clients/${clientId}/ai-security`} className={navItem}>AI/ML Security</NavLink>
-            <NavLink to={`/clients/${clientId}/devsecops`} className={navItem}>DevSecOps</NavLink>
+            {(isStaff || can('phishing_simulations') || can('mobile_security') || can('web3_security') || can('ai_security') || can('devsecops')) && (
+              <div className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-widest text-muted font-mono">Expanded Services</div>
+            )}
+            {can('phishing_simulations') && <NavLink to={`/clients/${clientId}/social-engineering`} className={navItem}>Social Engineering</NavLink>}
+            {can('mobile_security') && <NavLink to={`/clients/${clientId}/mobile-security`} className={navItem}>Mobile App Security</NavLink>}
+            {can('web3_security') && <NavLink to={`/clients/${clientId}/web3-security`} className={navItem}>Web3 &amp; Blockchain</NavLink>}
+            {can('ai_security') && <NavLink to={`/clients/${clientId}/ai-security`} className={navItem}>AI/ML Security</NavLink>}
+            {can('devsecops') && <NavLink to={`/clients/${clientId}/devsecops`} className={navItem}>DevSecOps</NavLink>}
           </>
         )}
 

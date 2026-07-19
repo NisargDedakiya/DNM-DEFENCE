@@ -5,13 +5,14 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.core.auth import require_client_access
+from app.core.entitlements import require_feature
 from app.core.database import get_db
 from app.models.models import Client, PromptInjectionTest, AIFeatureInventory
 from app.services.ai_security_testing import run_and_classify, sync_prompt_injection_findings_to_db
 from app.services.ai_posture import check_ai_library_cves, generate_ai_security_brief
 from app.services.compliance import get_compliance_summary
 
-router = APIRouter(prefix="/api/clients/{client_id}/ai-security", tags=["ai-security"], dependencies=[Depends(require_client_access)])
+router = APIRouter(prefix="/api/clients/{client_id}/ai-security", tags=["ai-security"], dependencies=[Depends(require_client_access), Depends(require_feature("ai_security"))])
 
 
 class PromptInjectionTestCreate(BaseModel):

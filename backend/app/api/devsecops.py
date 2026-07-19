@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.core.auth import require_client_access
+from app.core.entitlements import require_feature
 from app.core.database import get_db
 from app.models.models import Client, PipelineIntegration, DeveloperScorecardSnapshot
 from app.services.devsecops import (
@@ -19,7 +20,7 @@ from app.services.triage import (
 from app.services.scorecard import compute_scorecard_metrics, snapshot_scorecard, generate_scorecard_narrative, export_scorecard_pdf
 from app.services.iac_scan import run_checkov, sync_iac_findings_to_db
 
-router = APIRouter(prefix="/api/clients/{client_id}/devsecops", tags=["devsecops"], dependencies=[Depends(require_client_access)])
+router = APIRouter(prefix="/api/clients/{client_id}/devsecops", tags=["devsecops"], dependencies=[Depends(require_client_access), Depends(require_feature("devsecops"))])
 
 _EXPORT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "generated_reports")
 os.makedirs(_EXPORT_DIR, exist_ok=True)

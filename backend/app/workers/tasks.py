@@ -334,10 +334,11 @@ def run_dark_web_scan_for_client(self, client_id: str):
 
 @celery_app.task
 def run_dark_web_scan_all_clients():
-    """Scheduled fan-out — daily dark web / threat intel check for every active client."""
+    """Scheduled fan-out — dark web / threat intel check, only for clients whose plan includes it."""
+    from app.core.plans import plan_allows_scan
     db = SessionLocal()
     try:
-        client_ids = [c.id for c in db.query(Client).filter_by(is_active=True)]
+        client_ids = [c.id for c in db.query(Client).filter_by(is_active=True) if plan_allows_scan(c.plan, "dark_web_scan")]
     finally:
         db.close()
     for cid in client_ids:
@@ -414,10 +415,11 @@ def run_cloud_audit_for_client(self, client_id: str):
 
 @celery_app.task
 def run_cloud_audit_all_clients():
-    """Scheduled fan-out — cloud posture audit for every active client."""
+    """Scheduled fan-out — cloud posture audit, only for clients whose plan includes it."""
+    from app.core.plans import plan_allows_scan
     db = SessionLocal()
     try:
-        client_ids = [c.id for c in db.query(Client).filter_by(is_active=True)]
+        client_ids = [c.id for c in db.query(Client).filter_by(is_active=True) if plan_allows_scan(c.plan, "cloud_audit")]
     finally:
         db.close()
     for cid in client_ids:
