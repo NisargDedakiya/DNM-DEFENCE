@@ -181,6 +181,20 @@ docker compose run --rm api python -m app.scripts.create_admin you@youragency.co
 curl http://localhost/health                                      # = make health
 ```
 
+**On Windows?** Install Docker Desktop, then use the PowerShell wrapper (the
+`make` equivalent — no other tools needed on your host, since every scanner
+runs inside the container):
+
+```powershell
+.\scripts\dnm.ps1 setup
+.\scripts\dnm.ps1 up
+.\scripts\dnm.ps1 create-admin
+.\scripts\dnm.ps1 health
+```
+
+See **[WINDOWS.md](WINDOWS.md)** for the full Windows guide, prerequisites, and
+the list of tools the container installs for you.
+
 **Two things to set for real use** (both surfaced by `make setup` and on the
 in-app **System Health** page):
 
